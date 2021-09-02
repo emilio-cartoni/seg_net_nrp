@@ -113,7 +113,7 @@ class PredNetVGG(nn.Module):
     
     # Initialize outputs of this step, as well as internal states, if necessary
     batch_size, n_channels, h, w = A.size()
-    E_pile, R_pile = [None]*self.n_layers, [None]*self.n_layers
+    E_pile, error_pile, R_pile = [None]*self.n_layers, [None]*self.n_layers, [None]*self.n_layers
     if frame_idx == 0:
       for l in range(self.n_layers):
         self.E_state[l] = torch.zeros(batch_size, self.bu_channels[l], h, w).cuda()
@@ -135,7 +135,10 @@ class PredNetVGG(nn.Module):
     for l in range(self.n_layers):
       A = self.bu_drop[l](self.bu_conv[l](A))
       A_hat = self.la_conv[l](R_pile[l])
-      E_pile[l] = torch.abs(A - A_hat)
+      # E_pile[l] = torch.abs(A - A_hat)
+      error = torch.abs(A - A_hat)
+      E_pile[l] = A * (1.0 + error / error.sum())
+      error_pile[l] = error
       if l < self.n_layers - 1:
         pool_input = A if self.do_untouched_bu else E_pile[l]
         A = self.bu_pool(pool_input)  # -> E_seq[l+1]
@@ -163,7 +166,7 @@ class PredNetVGG(nn.Module):
     self.E_state = E_pile
 
     # Return the states to the computer
-    return E_pile, P, S
+    return error_pile, P, S
 
 
   def save_model(self, optimizer, scheduler, train_losses, valid_losses):

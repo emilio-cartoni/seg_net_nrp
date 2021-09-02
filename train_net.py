@@ -15,8 +15,8 @@ td_channels = td_channels[:n_layers]
 learning_rate, dropout_rates = 1e-5, (0.0, 0.0, 0.0, 0.0)[:n_layers]
 loss_w = {
   'lat': (0.1, 0.1, 0.1, 0.1)[:n_layers],
-  'img': 1.0 if len(pr_layers) > 0 else 0.0,
-  'seg': 20.0 if len(sg_layers) > 0 else 0.0}
+  'img': 100.0 if len(pr_layers) > 0 else 0.0,
+  'seg': 100.0 if len(sg_layers) > 0 else 0.0}
 model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
            + f'_BI{int(do_bens_idea)}_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
            + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'
@@ -24,8 +24,8 @@ model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').rep
 
 # Dataset
 dataset_path = 'D:/DL/datasets/nrp/training_room_dataset_00.h5'
-n_samples, tr_ratio = 5, 0.85  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
-augmentation, remove_ground, speedup_factor = True, True, 4
+n_samples, tr_ratio = 1000, 0.85  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
+augmentation, remove_ground, speedup_factor = True, True, 1
 n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid,
