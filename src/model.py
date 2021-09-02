@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import os
 from src.hconvgru_cell import hConvGRUCell
@@ -37,6 +36,10 @@ class PredNetVGG(nn.Module):
     if not os.path.exists(model_path):
       os.mkdir(model_path)
 
+    # Model states
+    self.E_state = [None for _ in range(n_layers)]
+    self.R_state = [None for _ in range(n_layers)]
+
     # Bottom-up connections (bu)
     vgg = torch.hub.load('pytorch/vision:v0.10.0', vgg_type, pretrained=True)
     for param in vgg.parameters():
@@ -48,6 +51,7 @@ class PredNetVGG(nn.Module):
     self.bu_pool = nn.MaxPool2d(
       kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
     self.bu_drop = nn.ModuleList([nn.Dropout2d(p=r) for r in self.dropout_rates])
+    # self.bu_drop = nn.ModuleList([nn.Dropout(p=r) for r in self.dropout_rates])
 
     # Lateral connections (la)
     la_conv = []
@@ -70,94 +74,96 @@ class PredNetVGG(nn.Module):
     self.td_upsp = nn.Upsample(scale_factor=2)
 
     # Future frame prediction (pr)
-    pr_upsp = []
-    for l in self.pr_layers:
-      to_append = [nn.Sequential(
-        nn.ConvTranspose2d(  # or nn.Upsample(scale_factor=2)?
-          in_channels=self.td_channels[l], out_channels=self.td_channels[l],
-          kernel_size=3, stride=2, padding=1, output_padding=1),
-        nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
-      pr_upsp.append(nn.Sequential(*to_append))
-    self.pr_upsp = nn.ModuleList(pr_upsp)
-    pr_channels = sum([self.td_channels[l] for l in self.pr_layers])
-    self.pr_conv = nn.Sequential(
-      nn.Conv2d(in_channels=pr_channels, out_channels=3, kernel_size=3, padding=1),
-      nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False))  # range for image prediction
+    if len(self.pr_layers) > 0:
+      pr_upsp = []
+      for l in self.pr_layers:
+        to_append = [nn.Sequential(
+          # nn.Upsample(scale_factor=2),
+          nn.ConvTranspose2d(
+            in_channels=self.td_channels[l], out_channels=self.td_channels[l],
+            kernel_size=3, stride=2, padding=1, output_padding=1),
+          nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
+        pr_upsp.append(nn.Sequential(*to_append))
+      self.pr_upsp = nn.ModuleList(pr_upsp)
+      pr_channels = sum([self.td_channels[l] for l in self.pr_layers])
+      self.pr_conv = nn.Sequential(
+        nn.Conv2d(in_channels=pr_channels, out_channels=3, kernel_size=3, padding=1),
+        nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False))  # range for image prediction
 
     # Segmentation prediction (sg)
-    sg_upsp = []
-    for l in self.sg_layers:
-      to_append = [nn.Sequential(
-        nn.ConvTranspose2d(  # or nn.Upsample(scale_factor=2)?
-          in_channels=self.td_channels[l], out_channels=self.td_channels[l],
-          kernel_size=3, stride=2, padding=1, output_padding=1),
-        nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
-      sg_upsp.append(nn.Sequential(*to_append))
-    self.sg_upsp = nn.ModuleList(sg_upsp)
-    sg_channels = sum([self.td_channels[l] for l in self.sg_layers])
-    self.sg_conv = nn.Sequential(
-      nn.Conv2d(in_channels=sg_channels, out_channels=self.n_classes, kernel_size=3, padding=1),
-      nn.Sigmoid())
+    if len(self.sg_layers) > 0:
+      sg_upsp = []
+      for l in self.sg_layers:
+        to_append = [nn.Sequential(
+          nn.ConvTranspose2d(
+            in_channels=self.td_channels[l], out_channels=self.td_channels[l],
+            kernel_size=3, stride=2, padding=1, output_padding=1),
+          nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
+        sg_upsp.append(nn.Sequential(*to_append))
+      self.sg_upsp = nn.ModuleList(sg_upsp)
+      sg_channels = sum([self.td_channels[l] for l in self.sg_layers])
+      self.sg_conv = nn.Sequential(
+        nn.Conv2d(in_channels=sg_channels, out_channels=self.n_classes, kernel_size=3, padding=1),
+        nn.Sigmoid())
 
     # Put model on gpu
     self.to('cuda')
 
-  def forward(self, input_sequence):
+  def forward(self, A, S_lbl, frame_idx):
     
-    # Initialize inputs, outputs and internal states
-    TA = self.do_time_aligned  # for convenience
-    batch_size, n_channels, h, w, n_frames = input_sequence.size()
-    P_seq = torch.zeros(batch_size, n_channels, h, w, TA + n_frames).cuda()
-    S_seq = torch.zeros(batch_size, self.n_classes, h, w, TA + n_frames).cuda()
-    E_seq, R_seq = [], []
-    for l in range(self.n_layers):
-      E_seq.append([None] * (TA + n_frames))  # [n_l, n_t + 1][b, bu_c, h, w]
-      R_seq.append([None] * (TA + n_frames))  # [n_l, n_t + 1][b, td_c, h, w]
-      for t in range(n_frames):
-        if t == 0 or not TA:
-          E_seq[l][t] = torch.zeros(batch_size, 1 * self.bu_channels[l], h, w).cuda()
-          R_seq[l][t] = torch.zeros(batch_size, 1 * self.td_channels[l], h, w).cuda()
-      h, w = h // 2, w // 2
-
-    # Loop through time run the model
-    for t in range(TA, TA + n_frames):
-      A = input_sequence[..., t - TA]
-
-      # Top-down pass
-      for l in reversed(range(self.n_layers)):
-        R = R_seq[l][t - TA]
-        E = E_seq[l][max(t - 1, 0)]  # not "t-TA" on purpose
-        if l != self.n_layers - 1:
-          if self.do_bens_idea:
-            E = E * self.td_upsp(R_seq[l + 1][t - TA])
-          else:
-            E = torch.cat((E, self.td_upsp(R_seq[l + 1][t - TA])), dim=1)
-        R_seq[l][t] = self.td_hgru[l](E, R, t - TA)
-
-      # Bottom-up pass
+    # Initialize outputs of this step, as well as internal states, if necessary
+    batch_size, n_channels, h, w = A.size()
+    E_pile, R_pile = [None]*self.n_layers, [None]*self.n_layers
+    if frame_idx == 0:
       for l in range(self.n_layers):
-        A = self.bu_drop[l](self.bu_conv[l](A))
-        A_hat = self.la_conv[l](R_seq[l][t - TA])
-        # E_seq[l][t] = torch.cat([F.relu(A_hat - A), F.relu(A - A_hat)], 1)
-        E_seq[l][t] = torch.abs(A - A_hat)
-        if l < self.n_layers - 1:
-          pool_input = A if self.do_untouched_bu else E_seq[l][t]
-          A = self.bu_pool(pool_input)  # -> E_seq[l+1]
+        self.E_state[l] = torch.zeros(batch_size, self.bu_channels[l], h, w).cuda()
+        self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).cuda()
+        h, w = h // 2, w // 2
+      
+    # Top-down pass
+    for l in reversed(range(self.n_layers)):
+      R = self.R_state[l]
+      E = self.E_state[l]  # [max(t - 1, 0)]  # not "t-TA" on purpose
+      if l != self.n_layers - 1:
+        if self.do_bens_idea:
+          E = E * self.td_upsp(self.R_state[l + 1])
+        else:
+          E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
+      R_pile[l] = self.td_hgru[l](E, R, frame_idx)
 
-      # Future frame prediction
+    # Bottom-up pass
+    for l in range(self.n_layers):
+      A = self.bu_drop[l](self.bu_conv[l](A))
+      A_hat = self.la_conv[l](R_pile[l])
+      E_pile[l] = torch.abs(A - A_hat)
+      if l < self.n_layers - 1:
+        pool_input = A if self.do_untouched_bu else E_pile[l]
+        A = self.bu_pool(pool_input)  # -> E_seq[l+1]
+
+    # Future frame prediction
+    if len(self.pr_layers) > 0:
       P_input = [None for _ in self.pr_layers]
       for i, l in enumerate(self.pr_layers):
-        P_input[i] = self.pr_upsp[i](R_seq[l][t - TA])
-      P_seq[..., t] = self.pr_conv(torch.cat(P_input, dim=1))
+        P_input[i] = self.pr_upsp[i](R_pile[l])
+      P = self.pr_conv(torch.cat(P_input, dim=1))
+    else:
+      P = torch.zeros_like(S_lbl[:, :3])  # yeah...
 
-      # Segmentation
+    # Segmentation
+    if len(self.sg_layers) > 0:
       S_input = [None for _ in self.sg_layers]
       for i, l in enumerate(self.sg_layers):
-        S_input[i] = self.sg_upsp[i](R_seq[l][t - TA])
-      S_seq[..., t] = self.sg_conv(torch.cat(S_input, dim=1))
+        S_input[i] = self.sg_upsp[i](R_pile[l])
+      S = self.sg_conv(torch.cat(S_input, dim=1))
+    else:
+      S = torch.zeros_like(S_lbl)
+
+    # Update the states of the network
+    self.R_state = R_pile
+    self.E_state = E_pile
 
     # Return the states to the computer
-    return [E[TA:] for E in E_seq], P_seq[..., TA:], S_seq[..., TA:]
+    return E_pile, P, S
 
 
   def save_model(self, optimizer, scheduler, train_losses, valid_losses):

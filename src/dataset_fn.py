@@ -6,14 +6,14 @@ import numpy as np
 import h5py
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-# VGG_MEAN = np.array([0.485, 0.456, 0.406])
-# VGG_STD = np.array([0.229, 0.224, 0.225])
-VGG_MEAN = np.array([0.0, 0.0, 0.0])
-VGG_STD = np.array([1.0, 1.0, 1.0])
+# VGG_MEAN = [0.485, 0.456, 0.406]
+# VGG_STD = [0.229, 0.224, 0.225]
+VGG_MEAN = [0.0, 0.0, 0.0]
+VGG_STD = [1.0, 1.0, 1.0]
 
 class H5Dataset_Seg(data.Dataset):
 
-  def __init__(self, h5_path, from_to, augmentation, remove_ground, speedup_factor, mode):
+  def __init__(self, h5_path, from_to, n_samples, augmentation, remove_ground, speedup_factor, mode):
 
     # Parameters pre-initialization
     super(H5Dataset_Seg, self).__init__()
@@ -27,23 +27,24 @@ class H5Dataset_Seg(data.Dataset):
     self.lbl_segment = None
     self.saliences = None
     with h5py.File(h5_path, 'r') as f:
-      n_samples, self.n_frames, height, width = f['rgb_samples'].shape[:-1]
+      self.n_frames, height, width = f['rgb_samples'].shape[1:-1]
       try:
         self.dataset_length = from_to[1] - from_to[0]
       except TypeError:
         self.dataset_length = n_samples - from_to[0]
 
-    # Data augmentation initialization
+    # Tranform for VGG range  
+    self.transform = A.Compose([
+      A.Normalize(mean=VGG_MEAN, std=VGG_STD),
+      ToTensorV2()],
+      additional_targets={f'image{t}': 'image' for t in range(1, 20)})
+    
+    # Additional augmentations (only for training)
     if augmentation:
-      if mode == 'train':  # could be more transforms here
-        self.transform = A.Compose([
-          A.Normalize(mean=VGG_MEAN, std=VGG_STD),
-          ToTensorV2()],
-          additional_targets={f'image{t}': 'image' for t in range(1, 20)})
-      elif mode == 'valid':  # just for VGG
-        self.transform = A.Compose([
-          A.Normalize(mean=VGG_MEAN, std=VGG_STD),
-          ToTensorV2()],
+      if mode == 'train':
+        additional_tranforms = []
+        self.transform = A.Compose(
+          additional_tranforms + [t for t in self.transform],
           additional_targets={f'image{t}': 'image' for t in range(1, 20)})
 
   def __getitem__(self, index):
@@ -115,7 +116,7 @@ def get_datasets_seg(
   if mode != 'test':
     train_bounds = (0, int(n_samples * tr_ratio))
     train_dataset = H5Dataset_Seg(
-      dataset_path, train_bounds, True, remove_ground, speedup_factor, 'train')
+      dataset_path, train_bounds, n_samples, True, remove_ground, speedup_factor, 'train')
     train_dataloader = data.DataLoader(
       train_dataset, batch_size=batch_size_train, shuffle=True,
       sampler=None, batch_sampler=None, num_workers=0, collate_fn=None,
@@ -127,7 +128,7 @@ def get_datasets_seg(
   # Validation dataloader
   valid_bounds = (int(n_samples * tr_ratio), None)  # None means very last one
   valid_dataset = H5Dataset_Seg(
-    dataset_path, valid_bounds, augmentation, remove_ground, speedup_factor, 'valid')
+    dataset_path, valid_bounds, n_samples, augmentation, remove_ground, speedup_factor, 'valid')
   valid_dataloader = data.DataLoader(
     valid_dataset, batch_size=batch_size_valid, shuffle=True,
     sampler=None, batch_sampler=None, num_workers=0, collate_fn=None,

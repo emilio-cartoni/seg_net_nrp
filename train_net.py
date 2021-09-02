@@ -4,30 +4,32 @@ from src.utils import train_fn, valid_fn
 from src.dataset_fn import get_datasets_seg
 
 # Parameters
-load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 10, 5, None
-t_start, do_time_aligned, do_untouched_bu = 1, True, False
-do_img_prediction, do_segmentation, do_bens_idea = True, True, True
-batch_size_train, batch_size_valid = 2, 6
-vgg_type, n_layers = 'vgg19', 3
-pr_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])
-sg_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])
+load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 50, 2, None
+do_time_aligned, do_untouched_bu, do_bens_idea = True, False, True
+batch_size_train, batch_size_valid = 1, 4
+vgg_type, n_layers, t_start = 'vgg19', 4, 1
+pr_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])  # set as [] for not doing it
+sg_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])  # set as [] for not doing it
 td_channels = td_channels = (32, 64, 128, 256) if do_bens_idea else (64, 128, 256, 512)
 td_channels = td_channels[:n_layers]
-learning_rate, dropout_rates = 1e-4, (0.0, 0.0, 0.0, 0.0)[:n_layers]
-loss_w = {'lat': (0.5, 0.5, 0.5, 0.5)[:n_layers], 'img': 10.0, 'seg': 1.0}
+learning_rate, dropout_rates = 1e-5, (0.0, 0.0, 0.0, 0.0)[:n_layers]
+loss_w = {
+  'lat': (0.1, 0.1, 0.1, 0.1)[:n_layers],
+  'img': 1.0 if len(pr_layers) > 0 else 0.0,
+  'seg': 20.0 if len(sg_layers) > 0 else 0.0}
 model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
-           + f'_BI{do_bens_idea}_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
+           + f'_BI{int(do_bens_idea)}_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
            + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 
 # Dataset
-dataset_path = '../PredNetNRP/data/training_room_dataset_00.h5'
-n_samples, tr_ratio = 1000, 0.85  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
-augmentation, remove_ground, speedup_factor = True, True, 2
+dataset_path = 'D:/DL/datasets/nrp/training_room_dataset_00.h5'
+n_samples, tr_ratio = 5, 0.85  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
+augmentation, remove_ground, speedup_factor = True, True, 4
 n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid,
-  augmentation=augmentation, remove_ground=True, speedup_factor=speedup_factor)
+  augmentation=augmentation, remove_ground=remove_ground, speedup_factor=speedup_factor)
 
 # Load the model
 if not load_model:
