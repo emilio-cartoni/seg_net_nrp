@@ -26,7 +26,7 @@ model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').rep
 dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
 n_frames = 20
-augmentation, remove_ground, speedup_factor = True, True, 1
+augmentation, remove_ground, speedup_factor = True, False, 1
 n_classes = 11 if remove_ground else 10
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,

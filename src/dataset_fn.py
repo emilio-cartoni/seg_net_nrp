@@ -75,7 +75,7 @@ class Mots_Dataset(data.Dataset):
     samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
     labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
     labels = torch.div(labels, 1000, rounding_mode='floor')
-    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=11)
+    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=11) # TODO: add self.num_classes input from caller
     labels = torch.movedim(labels, -1, 1)
     labels = torch.squeeze(labels, dim=0)
     labels = labels.type(torch.FloatTensor)
