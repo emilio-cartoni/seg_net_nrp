@@ -12,10 +12,11 @@ VGG_STD = [1.0, 1.0, 1.0]
 
 
 class Mots_Dataset(data.Dataset):
-  def __init__(self, root_dir, train_valid_subfolders, n_frames):
+  def __init__(self, root_dir, train_valid_subfolders, n_classes, n_frames):
     self.sample_root = os.path.join(root_dir, 'training', 'image_02')
     self.label_root = os.path.join(root_dir, 'instances')
     self.train_valid_subfolders = train_valid_subfolders
+    self.n_classes = n_classes
     self.n_frames = n_frames  # idea: variable n_frames for each batch?
     # self.sample_transform = IT.Compose([
     #   IT.RandomResizedCrop(size=(224, 224)),
@@ -75,7 +76,7 @@ class Mots_Dataset(data.Dataset):
     samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
     labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
     labels = torch.div(labels, 1000, rounding_mode='floor')
-    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=11) # TODO: add self.num_classes input from caller
+    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes)
     labels = torch.movedim(labels, -1, 1)
     labels = torch.squeeze(labels, dim=0)
     labels = labels.type(torch.FloatTensor)
@@ -88,7 +89,7 @@ class Mots_Dataset(data.Dataset):
 
 def get_datasets_seg(root_dir, train_valid_ratio,
                      batch_size_train, batch_size_valid, n_frames,
-                     augmentation, remove_ground, speedup_factor):
+                     augmentation, n_classes, speedup_factor):
   
   # Data train valid
   training_folders = os.listdir(os.path.join(root_dir, 'training', 'image_02'))
@@ -96,7 +97,7 @@ def get_datasets_seg(root_dir, train_valid_ratio,
   valid_subfolders = [folder for folder in training_folders[int(train_valid_ratio * len(training_folders)):]]
 
   # Training dataloader
-  train_dataset = Mots_Dataset(root_dir, train_subfolders, n_frames)
+  train_dataset = Mots_Dataset(root_dir, train_subfolders, n_classes, n_frames)
   train_dataloader = data.DataLoader(
     train_dataset, batch_size=batch_size_train, shuffle=True)
 
