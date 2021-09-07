@@ -23,12 +23,12 @@ model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 
 # Dataset
-# dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
-dataset_path = r'D:\DL\datasets\kitti\mots'
+dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
+# dataset_path = r'D:\DL\datasets\kitti\mots'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
 n_frames = 100
 augmentation, remove_ground, speedup_factor = True, True, 1
-n_classes = 10 if remove_ground else 11
+n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
   augmentation=augmentation, n_classes=n_classes, speedup_factor=speedup_factor,

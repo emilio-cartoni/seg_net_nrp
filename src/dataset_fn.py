@@ -76,15 +76,18 @@ class Mots_Dataset(data.Dataset):
 
     samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
     labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
-    if self.remove_ground:
-      labels[labels == 10000] = 0
-      warnings.warn('UserWarning: by setting remove_background = True, if you are using the MOTS dataset, you are'
-                    ' collapsing the background class with the ignore region class.')
+    # if self.remove_ground:
+    #   labels[labels == 10000] = 0
+    #   warnings.warn('UserWarning: by setting remove_background = True, if you are using the MOTS dataset, you are'
+    #                 ' collapsing the background class with the ignore region class.')
     labels = torch.div(labels, 1000, rounding_mode='floor')
+    labels[labels == 10] = self.n_classes - int(not self.remove_ground)
     labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes)
     labels = torch.movedim(labels, -1, 1)
     labels = torch.squeeze(labels, dim=0)
     labels = labels.type(torch.FloatTensor)
+    if self.remove_ground:
+      labels = labels[1:]
     #sample = self.sample_transform(Image.open(os.path.join(sample_dir, frame)))
     # labels = [self.transform(Image.open(os.path.join(label_dir, p))) for p in sample_frames] # espescially output dims? might have to use permute
     # labels[labels == 10] = 0
@@ -113,30 +116,3 @@ def get_datasets_seg(root_dir, train_valid_ratio,
 
   # Return the dataloaders to the computer
   return train_dataloader, valid_dataloader
-
-
-def main():
-  # root_dir = os.path.join('D:\\', 'DL', 'datasets', 'kitti', 'mots')
-  root_dir = os.path.join('C:\\', 'Users', 'loennqvi', 'Github', 'seg_net_vgg', 'data', 'MOTS')
-  batch_size_train = 1
-  batch_size_valid = 1
-  train_valid_ratio = 0.8
-  n_frames = 20
-  n_classes = 10
-  train_dl, valid_dl = get_datasets_seg(
-    root_dir, train_valid_ratio,
-    batch_size_train, batch_size_valid, n_frames, augmentation=False, n_classes=n_classes,
-  speedup_factor=False)
-  import matplotlib.pyplot as plt
-  for sample, label in valid_dl:
-    for subindex in range(n_frames):
-      newlabel = label[subindex].cpu().numpy()
-      newlabel = newlabel[0, :]
-      newlabel = np.moveaxis(newlabel, 0, 2)
-      #label = np.squeeze(label)
-      plt.imshow(newlabel)
-      plt.show()
-
-
-if __name__ == '__main__':
-  main()
