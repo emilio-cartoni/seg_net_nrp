@@ -114,7 +114,7 @@ class PredNetVGG(nn.Module):
     # Initialize outputs of this step, as well as internal states, if necessary
     batch_size, n_channels, h, w = A.size()
     E_pile, error_pile, R_pile = [None]*self.n_layers, [None]*self.n_layers, [None]*self.n_layers
-    if frame_idx == 0:
+    if frame_idx == 0:  # replace by if self.E_state[l] == None? network might freak out every new sequence
       for l in range(self.n_layers):
         self.E_state[l] = torch.zeros(batch_size, self.bu_channels[l], h, w).cuda()
         self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).cuda()
@@ -129,7 +129,7 @@ class PredNetVGG(nn.Module):
           E = E * self.td_upsp(self.R_state[l + 1])
         else:
           E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-      R_pile[l] = self.td_hgru[l](E, R, frame_idx)
+      R_pile[l] = self.td_hgru[l](E, R)
 
     # Bottom-up pass
     for l in range(self.n_layers):

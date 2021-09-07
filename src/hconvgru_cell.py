@@ -6,13 +6,12 @@ from torch import nn
 
 class hConvGRUCell(nn.Module):
 
-    def __init__(self, input_size, hidden_size, kernel_size, batchnorm=True, timesteps=20):
+    def __init__(self, input_size, hidden_size, kernel_size, batchnorm=True):
         super().__init__()
 
         self.padding = kernel_size//2
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.timesteps = timesteps
         self.batchnorm = batchnorm
 
         self.u1_gate = nn.Conv2d(hidden_size, hidden_size, 1)
@@ -32,10 +31,10 @@ class hConvGRUCell(nn.Module):
         if self.batchnorm:
             # self.bn = nn.ModuleList([nn.BatchNorm2d(hidden_size, eps=1e-03)
             # self.bn = nn.ModuleList([nn.InstanceNorm2d(hidden_size, eps=1e-03)
-            self.bn = nn.ModuleList([nn.GroupNorm(hidden_size//4, hidden_size, eps=1e-03)
-                for t in range(4*self.timesteps)])
+            self.bn = nn.ModuleList([
+              nn.GroupNorm(hidden_size//4, hidden_size, eps=1e-03) for t in range(4)])
         else:
-            self.n = nn.Parameter(torch.randn(4*self.timesteps, 1, 1))
+            self.n = nn.Parameter(torch.randn(4, 1, 1))
 
         nn.init.orthogonal_(self.w_gate_inh)
         nn.init.orthogonal_(self.w_gate_exc)
@@ -56,7 +55,7 @@ class hConvGRUCell(nn.Module):
         self.u2_gate.bias.data =  -self.u1_gate.bias.data
 
 
-    def forward(self, input_, prev_state2, t=0):
+    def forward(self, input_, prev_state2):
 
         # if t == 0:
         #     prev_state2 = torch.empty_like(input_)
@@ -65,11 +64,11 @@ class hConvGRUCell(nn.Module):
             input_ = F.conv2d(input_, self.w_input_dim)
 
         if self.batchnorm:
-            g1_t = torch.sigmoid(self.bn[t*4+0](self.u1_gate(prev_state2)))
-            c1_t = self.bn[t*4+1](F.conv2d(prev_state2*g1_t, self.w_gate_inh, padding=self.padding))
+            g1_t = torch.sigmoid(self.bn[0](self.u1_gate(prev_state2)))
+            c1_t = self.bn[1](F.conv2d(prev_state2*g1_t, self.w_gate_inh, padding=self.padding))
             next_state1 = F.relu(input_ - F.relu(c1_t*(self.alpha*prev_state2 + self.mu)))
-            g2_t = torch.sigmoid(self.bn[t*4+2](self.u2_gate(next_state1)))
-            c2_t = self.bn[t*4+3](F.conv2d(next_state1, self.w_gate_exc, padding=self.padding))
+            g2_t = torch.sigmoid(self.bn[2](self.u2_gate(next_state1)))
+            c2_t = self.bn[3](F.conv2d(next_state1, self.w_gate_exc, padding=self.padding))
             h2_t = F.relu(self.kappa*next_state1 + self.gamma*c2_t + self.w*next_state1*c2_t)          
             prev_state2 = (1 - g2_t)*prev_state2 + g2_t*h2_t
 
@@ -77,9 +76,9 @@ class hConvGRUCell(nn.Module):
             g1_t = torch.sigmoid(self.u1_gate(prev_state2))
             c1_t = F.conv2d(prev_state2 * g1_t, self.w_gate_inh, padding=self.padding)
             next_state1 = torch.tanh(input_ - c1_t*(self.alpha*prev_state2 + self.mu))
-            g2_t = torch.sigmoid(self.n[t*4+2]*(self.u2_gate(next_state1)))
+            g2_t = torch.sigmoid(self.n[2]*(self.u2_gate(next_state1)))
             c2_t = F.conv2d(next_state1, self.w_gate_exc, padding=self.padding)
             h2_t = torch.tanh(self.kappa*(next_state1 + self.gamma*c2_t) + (self.w*(next_state1*(self.gamma*c2_t))))
-            prev_state2 = self.n[t]*((1 - g2_t)*prev_state2 + g2_t*h2_t)
+            prev_state2 = self.n[0]*((1 - g2_t)*prev_state2 + g2_t*h2_t)
 
         return prev_state2
