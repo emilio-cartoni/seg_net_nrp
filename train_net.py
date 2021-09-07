@@ -23,19 +23,20 @@ model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 
 # Dataset
-dataset_path = 'D:/DL/datasets/nrp/training_room_dataset_00.h5'
-n_samples, tr_ratio = 1000, 0.85  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
+dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
+n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
+n_frames = 20
 augmentation, remove_ground, speedup_factor = True, True, 1
-n_classes = 3 if remove_ground else 4
+n_classes = 11 if remove_ground else 10
 train_dl, valid_dl = get_datasets_seg(
-  dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid,
+  dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
   augmentation=augmentation, remove_ground=remove_ground, speedup_factor=speedup_factor)
 
 # Load the model
 if not load_model:
   print(f'\nCreating model: {model_name}')
   model = PredNetVGG(
-    model_name, vgg_type, n_classes, n_layers, pr_layers, sg_layers, \
+    model_name, vgg_type, n_classes, n_layers, pr_layers, sg_layers,
     td_channels, dropout_rates, do_time_aligned, do_untouched_bu, do_bens_idea)
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)

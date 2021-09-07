@@ -38,7 +38,7 @@ class Mots_Dataset(data.Dataset):
     """
     transformed_images = []
     resize = IT.transforms.Resize(size=(224, 224))
-    i, j, h, w = IT.transforms.RandomCrop.get_params(list_of_images[0][0], output_size=(375, 375))  # images are big x 375
+    i, j, h, w = IT.transforms.RandomCrop.get_params(list_of_images[0][0], output_size=(350, 350))
     for image, label in list_of_images:
       image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
       image, label = resize(image), resize(label)
@@ -50,7 +50,6 @@ class Mots_Dataset(data.Dataset):
     return len(self.train_valid_subfolders)
 
   def __getitem__(self, index):
-    print(index)
     sample_dir = os.path.join(self.sample_root, f'{index:04}')
     label_dir = os.path.join(self.label_root, f'{index:04}')
     sample_paths = [os.path.join(sample_dir, p) for p in os.listdir(sample_dir)]
@@ -61,23 +60,35 @@ class Mots_Dataset(data.Dataset):
     label_frames = label_paths[first_frame:first_frame + self.n_frames]
 
     # for frame in sample_paths:
-    samples_and_labels = self.transform([(Image.open(os.path.join(sample_dir, p)), Image.open(os.path.join(label_dir, p))) for p in sample_frames])
-    samples = [sample[0] for sample in samples_and_labels]
-    labels = [sample[1] for sample in samples_and_labels]
+    # samples_and_labels = self.transform([(Image.open(os.path.join(sample_dir, p)), Image.open(os.path.join(label_dir, p))) for p in sample_frames])
+    samples_and_labels = []
+    for i in range(self.n_frames):
+      sample = Image.open(os.path.join(sample_dir, sample_frames[i]))
+      label = Image.open(os.path.join(label_dir, label_frames[i]))
+      samples_and_labels.append((sample, label))
+    samples_and_labels = self.transform(samples_and_labels)
+    # divide by //1000
+    # onehot
+    # floattensor
+    # then to cuda
+
+    samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
+    labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
+    labels = torch.div(labels, 1000, rounding_mode='floor')
+    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=11)
+    labels = torch.movedim(labels, -1, 1)
+    labels = torch.squeeze(labels, dim=0)
+    labels = labels.type(torch.FloatTensor)
     #sample = self.sample_transform(Image.open(os.path.join(sample_dir, frame)))
     # labels = [self.transform(Image.open(os.path.join(label_dir, p))) for p in sample_frames] # espescially output dims? might have to use permute
-    for sample in samples:
-      sample.cuda()
-    for label in labels:
-      label.cuda()
     # labels[labels == 10] = 0
 
-    return samples, labels
+    return samples.to(device='cuda'), labels.to(device='cuda')
 
 
-def get_datasets_seg(
-  root_dir, train_valid_ratio,
-  batch_size_train, batch_size_valid, n_frames):
+def get_datasets_seg(root_dir, train_valid_ratio,
+                     batch_size_train, batch_size_valid, n_frames,
+                     augmentation, remove_ground, speedup_factor):
   
   # Data train valid
   training_folders = os.listdir(os.path.join(root_dir, 'training', 'image_02'))
@@ -107,7 +118,8 @@ def main():
   n_frames = 20
   train_dl, valid_dl = get_datasets_seg(
     root_dir, train_valid_ratio,
-    batch_size_train, batch_size_valid, n_frames)
+    batch_size_train, batch_size_valid, n_frames, augmentation=False, remove_ground=False,
+  speedup_factor=False)
   import matplotlib.pyplot as plt
   for sample, label in valid_dl:
     for subindex in range(n_frames):
@@ -117,6 +129,7 @@ def main():
       #label = np.squeeze(label)
       plt.imshow(newlabel)
       plt.show()
+
 
 if __name__ == '__main__':
   main()
