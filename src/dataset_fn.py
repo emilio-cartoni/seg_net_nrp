@@ -3,6 +3,7 @@ import numpy as np
 # import torchvideo.transforms as VT
 import torchvision.transforms as IT
 import torchvision.transforms.functional as TF
+import PIL
 import warnings
 import os
 import random
@@ -40,7 +41,7 @@ class Mots_Dataset(data.Dataset):
       A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
     """
     transformed_images = []
-    resize = IT.transforms.Resize(size=(224, 224))
+    resize = IT.transforms.Resize(size=(224, 224), interpolation=PIL.Image.NEAREST)
     i, j, h, w = IT.transforms.RandomCrop.get_params(list_of_images[0][0], output_size=(350, 350))
     for image, label in list_of_images:
       image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
@@ -67,22 +68,22 @@ class Mots_Dataset(data.Dataset):
     for i in range(n_frames):
       sample = Image.open(os.path.join(sample_dir, sample_frames[i]))
       label = Image.open(os.path.join(label_dir, label_frames[i]))
+      g = np.unique(np.array(label))
       samples_and_labels.append((sample, label))
     samples_and_labels = self.transform(samples_and_labels)
-    # divide by //1000
-    # onehot
-    # floattensor
-    # then to cuda
 
-    samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
-    labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
+    samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
+    labels = torch.stack([item[1] for item in samples_and_labels], dim=-1)
     # if self.remove_ground:
     #   labels[labels == 10000] = 0
     #   warnings.warn('UserWarning: by setting remove_background = True, if you are using the MOTS dataset, you are'
     #                 ' collapsing the background class with the ignore region class.')
+    y = torch.unique(labels)
     labels = torch.div(labels, 1000, rounding_mode='floor')
+    z = torch.unique(labels)
     labels[labels == 10] = self.n_classes - int(not self.remove_ground)
-    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes)
+    x = torch.unique(labels)
+    labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes + int(self.remove_ground))
     labels = torch.movedim(labels, -1, 1)
     labels = torch.squeeze(labels, dim=0)
     labels = labels.type(torch.FloatTensor)
