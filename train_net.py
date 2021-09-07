@@ -30,7 +30,8 @@ augmentation, remove_ground, speedup_factor = True, True, 1
 n_classes = 10 if remove_ground else 11
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
-  augmentation=augmentation, n_classes=n_classes, speedup_factor=speedup_factor)
+  augmentation=augmentation, n_classes=n_classes, speedup_factor=speedup_factor,
+  remove_ground=remove_ground)
 
 # Load the model
 if not load_model:

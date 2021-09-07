@@ -3,6 +3,7 @@ import numpy as np
 # import torchvideo.transforms as VT
 import torchvision.transforms as IT
 import torchvision.transforms.functional as TF
+import warnings
 import os
 import random
 import torch
@@ -12,12 +13,13 @@ VGG_STD = [1.0, 1.0, 1.0]
 
 
 class Mots_Dataset(data.Dataset):
-  def __init__(self, root_dir, train_valid_subfolders, n_classes, n_frames):
+  def __init__(self, root_dir, train_valid_subfolders, n_classes, n_frames, remove_ground):
     self.sample_root = os.path.join(root_dir, 'training', 'image_02')
     self.label_root = os.path.join(root_dir, 'instances')
     self.train_valid_subfolders = train_valid_subfolders
     self.n_classes = n_classes
     self.n_frames = n_frames  # idea: variable n_frames for each batch?
+    self.remove_ground = remove_ground
     # self.sample_transform = IT.Compose([
     #   IT.RandomResizedCrop(size=(224, 224)),
     #   IT.ToTensor()])
@@ -75,6 +77,10 @@ class Mots_Dataset(data.Dataset):
 
     samples = torch.stack([sample[0] for sample in samples_and_labels], dim=-1)
     labels = torch.stack([sample[1] for sample in samples_and_labels], dim=-1)
+    if self.remove_ground:
+      labels[labels == 10000] = 0
+      warnings.warn('UserWarning: by setting remove_background = True, if you are using the MOTS dataset, you are'
+                    ' collapsing the background class with the ignore region class.')
     labels = torch.div(labels, 1000, rounding_mode='floor')
     labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes)
     labels = torch.movedim(labels, -1, 1)
@@ -89,7 +95,7 @@ class Mots_Dataset(data.Dataset):
 
 def get_datasets_seg(root_dir, train_valid_ratio,
                      batch_size_train, batch_size_valid, n_frames,
-                     augmentation, n_classes, speedup_factor):
+                     augmentation, n_classes, speedup_factor, remove_ground):
   
   # Data train valid
   training_folders = os.listdir(os.path.join(root_dir, 'training', 'image_02'))
@@ -97,12 +103,12 @@ def get_datasets_seg(root_dir, train_valid_ratio,
   valid_subfolders = [folder for folder in training_folders[int(train_valid_ratio * len(training_folders)):]]
 
   # Training dataloader
-  train_dataset = Mots_Dataset(root_dir, train_subfolders, n_classes, n_frames)
+  train_dataset = Mots_Dataset(root_dir, train_subfolders, n_classes, n_frames, remove_ground)
   train_dataloader = data.DataLoader(
     train_dataset, batch_size=batch_size_train, shuffle=True)
 
   # Validation dataloader
-  valid_dataset = Mots_Dataset(root_dir, valid_subfolders, n_frames)
+  valid_dataset = Mots_Dataset(root_dir, valid_subfolders, n_classes, n_frames, remove_ground)
   valid_dataloader = data.DataLoader(
     valid_dataset, batch_size=batch_size_valid, shuffle=True)
 
@@ -117,9 +123,10 @@ def main():
   batch_size_valid = 1
   train_valid_ratio = 0.8
   n_frames = 20
+  n_classes = 10
   train_dl, valid_dl = get_datasets_seg(
     root_dir, train_valid_ratio,
-    batch_size_train, batch_size_valid, n_frames, augmentation=False, remove_ground=False,
+    batch_size_train, batch_size_valid, n_frames, augmentation=False, n_classes=n_classes,
   speedup_factor=False)
   import matplotlib.pyplot as plt
   for sample, label in valid_dl:
