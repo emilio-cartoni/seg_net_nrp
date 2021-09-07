@@ -57,7 +57,7 @@ class Mots_Dataset(data.Dataset):
     label_dir = os.path.join(self.label_root, f'{index:04}')
     sample_paths = [os.path.join(sample_dir, p) for p in os.listdir(sample_dir)]
     label_paths = [os.path.join(label_dir, p) for p in os.listdir(label_dir)]
-    n_frames = max(self.n_frames, len(sample_paths) - 1)
+    n_frames = min(self.n_frames, len(sample_paths) - 1)
     first_frame = random.choice(np.arange(len(sample_paths) - n_frames))
     sample_frames = sample_paths[first_frame:first_frame + n_frames]
     label_frames = label_paths[first_frame:first_frame + n_frames]
