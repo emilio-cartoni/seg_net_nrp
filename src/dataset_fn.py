@@ -41,12 +41,12 @@ class Mots_Dataset(data.Dataset):
       A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
     """
     transformed_images = []
-    resize = IT.transforms.Resize(size=(224, 224), interpolation=PIL.Image.NEAREST)
+    resize = IT.transforms.Resize(size=(224, 224), interpolation=IT.InterpolationMode.NEAREST)
     i, j, h, w = IT.transforms.RandomCrop.get_params(list_of_images[0][0], output_size=(350, 350))
     for image, label in list_of_images:
       image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
       image, label = resize(image), resize(label)
-      image, label = TF.to_tensor(image), TF.to_tensor(label)
+      image, label = TF.to_tensor(np.array(image)), TF.to_tensor(np.array(label))
       transformed_images.append((image, label))
     return transformed_images
 
