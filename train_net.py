@@ -42,7 +42,7 @@ if not load_model:
     td_channels, dropout_rates, do_time_aligned, do_untouched_bu, do_bens_idea)
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
-  scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [10, 20], gamma=0.1)
+  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5)
   train_losses, valid_losses = [], []
 else:
   print(f'\nLoading model: {model_name}')
@@ -57,6 +57,6 @@ for epoch in range(last_epoch, last_epoch + n_epochs_run):
   print(f'\nEpoch n°{epoch}')
   train_losses.append(train_fn(train_dl, model, optimizer, loss_w, t_start, epoch))
   valid_losses.append(valid_fn(valid_dl, model, loss_w, t_start, epoch))
-  scheduler.step()
+  scheduler.step(valid_losses[-1])
   if (epoch + 1) % n_epoch_save == 0:
     model.save_model(optimizer, scheduler, train_losses, valid_losses)
