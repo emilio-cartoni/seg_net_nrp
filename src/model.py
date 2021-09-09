@@ -92,19 +92,15 @@ class PredNetVGG(nn.Module):
 
     # Segmentation prediction (sg)
     if len(self.sg_layers) > 0:
-      sg_upsp = []
-      for l in self.sg_layers:
-        to_append = [nn.Sequential(
-          nn.ConvTranspose2d(
-            in_channels=self.td_channels[l], out_channels=self.td_channels[l],
-            kernel_size=3, stride=2, padding=1, output_padding=1),
-          nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
-        sg_upsp.append(nn.Sequential(*to_append))
-      self.sg_upsp = nn.ModuleList(sg_upsp)
-      sg_channels = sum([self.td_channels[l] for l in self.sg_layers])
-      self.sg_conv = nn.Sequential(
-        nn.Conv2d(in_channels=sg_channels, out_channels=self.n_classes, kernel_size=3, padding=1),
-        nn.Sigmoid())
+      self.relu = nn.ReLU(inplace=True)
+      self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.bn1 = nn.BatchNorm2d(128)
+      self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.bn2 = nn.BatchNorm2d(64)
+      self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.bn3 = nn.BatchNorm2d(32)
+      self.classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
+      self.sg_sigmoid = nn.Sigmoid()
 
     # Put model on gpu
     self.to('cuda')
@@ -153,11 +149,19 @@ class PredNetVGG(nn.Module):
       P = torch.zeros_like(S_lbl[:, :3])  # yeah...
 
     # Segmentation
-    if len(self.sg_layers) > 0:
+    # only last 3 segmentation layers for now
+    # TODO: generalize segmentation to take all segmentation layers
+    if len(self.sg_layers) > 2:
       S_input = [None for _ in self.sg_layers]
       for i, l in enumerate(self.sg_layers):
-        S_input[i] = self.sg_upsp[i](R_pile[l])
-      S = self.sg_conv(torch.cat(S_input, dim=1))
+        S_input[i] = R_pile[l]
+      score = self.relu(self.deconv1(S_input[-1]))  # size=(N, 512, x.H/16, x.W/16)
+      score = self.bn1(score + S_input[-2])  # element-wise add, size=(N, 512, x.H/16, x.W/16)
+      score = self.relu(self.deconv2(score))  # size=(N, 256, x.H/8, x.W/8)
+      score = self.bn2(score + S_input[-3])  # element-wise add, size=(N, 256, x.H/8, x.W/8)
+      score = self.bn3(self.relu(self.deconv3(score)))  # size=(N, 128, x.H/4, x.W/4)
+      score = self.classifier(score)  # size=(N, n_class, x.H/1, x.W/1)
+      S = self.sg_sigmoid(score)
     else:
       S = torch.zeros_like(S_lbl)
 
@@ -167,7 +171,6 @@ class PredNetVGG(nn.Module):
 
     # Return the states to the computer
     return error_pile, P, S
-
 
   def save_model(self, optimizer, scheduler, train_losses, valid_losses):
 
@@ -198,7 +201,6 @@ class PredNetVGG(nn.Module):
     plt.legend()
     plt.savefig(f'./ckpt/{self.model_name}/loss_plot.png')
     plt.close()
-
 
   @classmethod
   def load_model(cls, model_name, epoch_to_load=None):
