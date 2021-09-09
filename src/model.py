@@ -30,6 +30,7 @@ class PredNetVGG(nn.Module):
     self.do_time_aligned = do_time_aligned
     self.do_untouched_bu = do_untouched_bu
     self.do_bens_idea = do_bens_idea
+    self.inplace_relu = nn.ReLU(inplace=True)
 
     # Model directory
     model_path = f'./ckpt/{model_name}/'
@@ -75,31 +76,38 @@ class PredNetVGG(nn.Module):
 
     # Future frame prediction (pr)
     if len(self.pr_layers) > 0:
-      pr_upsp = []
-      for l in self.pr_layers:
-        to_append = [nn.Sequential(
-          # nn.Upsample(scale_factor=2),
-          nn.ConvTranspose2d(
-            in_channels=self.td_channels[l], out_channels=self.td_channels[l],
-            kernel_size=3, stride=2, padding=1, output_padding=1),
-          nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
-        pr_upsp.append(nn.Sequential(*to_append))
-      self.pr_upsp = nn.ModuleList(pr_upsp)
-      pr_channels = sum([self.td_channels[l] for l in self.pr_layers])
-      self.pr_conv = nn.Sequential(
-        nn.Conv2d(in_channels=pr_channels, out_channels=3, kernel_size=3, padding=1),
-        nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False))  # range for image prediction
+      # pr_upsp = []
+      # for l in self.pr_layers:
+      #   to_append = [nn.Sequential(
+      #     # nn.Upsample(scale_factor=2),
+      #     nn.ConvTranspose2d(
+      #       in_channels=self.td_channels[l], out_channels=self.td_channels[l],
+      #       kernel_size=3, stride=2, padding=1, output_padding=1),
+      #     nn.GroupNorm(self.td_channels[l] // 4, self.td_channels[l])) for _ in range(l)]
+      #   pr_upsp.append(nn.Sequential(*to_append))
+      # self.pr_upsp = nn.ModuleList(pr_upsp)
+      # pr_channels = sum([self.td_channels[l] for l in self.pr_layers])
+      # self.pr_conv = nn.Sequential(
+      #   nn.Conv2d(in_channels=pr_channels, out_channels=3, kernel_size=3, padding=1),
+      #   nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False))  # range for image prediction
+      self.pr_deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.pr_bn1 = nn.BatchNorm2d(128)
+      self.pr_deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.pr_bn2 = nn.BatchNorm2d(64)
+      self.pr_deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.pr_bn3 = nn.BatchNorm2d(32)
+      self.pr_classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
+      self.pr_hardtanh = nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False)
 
     # Segmentation prediction (sg)
     if len(self.sg_layers) > 0:
-      self.relu = nn.ReLU(inplace=True)
-      self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
-      self.bn1 = nn.BatchNorm2d(128)
-      self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
-      self.bn2 = nn.BatchNorm2d(64)
-      self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
-      self.bn3 = nn.BatchNorm2d(32)
-      self.classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
+      self.sg_deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.sg_bn1 = nn.BatchNorm2d(128)
+      self.sg_deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.sg_bn2 = nn.BatchNorm2d(64)
+      self.sg_deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
+      self.sg_bn3 = nn.BatchNorm2d(32)
+      self.sg_classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
       self.sg_sigmoid = nn.Sigmoid()
 
     # Put model on gpu
@@ -142,26 +150,38 @@ class PredNetVGG(nn.Module):
     # Future frame prediction
     if len(self.pr_layers) > 0:
       P_input = [None for _ in self.pr_layers]
+      # for i, l in enumerate(self.pr_layers):
+      #   P_input[i] = self.pr_upsp[i](R_pile[l])
+      # P = self.pr_conv(torch.cat(P_input, dim=1))
+      # TODO: generalize prediction to take all prediction layers
       for i, l in enumerate(self.pr_layers):
-        P_input[i] = self.pr_upsp[i](R_pile[l])
-      P = self.pr_conv(torch.cat(P_input, dim=1))
+        P_input[i] = R_pile[l]
+      P = self.inplace_relu(self.pr_deconv1(P_input[-1]))  # size=(N, 512, x.H/16, x.W/16)
+      P = self.pr_bn1(P + P_input[-2])  # element-wise add, size=(N, 512, x.H/16, x.W/16)
+      P = self.inplace_relu(self.pr_deconv2(P))  # size=(N, 256, x.H/8, x.W/8)
+      P = self.pr_bn2(P + P_input[-3])  # element-wise add, size=(N, 256, x.H/8, x.W/8)
+      P = self.inplace_relu(self.pr_deconv3(P))
+      P = self.pr_bn3(P + P_input[-4])  # size=(N, 128, x.H/4, x.W/4)
+      P = self.pr_classifier(P)  # size=(N, n_class, x.H/1, x.W/1)
+      P = self.pr_hardtanh(P)
     else:
       P = torch.zeros_like(S_lbl[:, :3])  # yeah...
 
     # Segmentation
     # only last 3 segmentation layers for now
     # TODO: generalize segmentation to take all segmentation layers
-    if len(self.sg_layers) > 2:
+    if len(self.sg_layers) > 3:
       S_input = [None for _ in self.sg_layers]
       for i, l in enumerate(self.sg_layers):
         S_input[i] = R_pile[l]
-      score = self.relu(self.deconv1(S_input[-1]))  # size=(N, 512, x.H/16, x.W/16)
-      score = self.bn1(score + S_input[-2])  # element-wise add, size=(N, 512, x.H/16, x.W/16)
-      score = self.relu(self.deconv2(score))  # size=(N, 256, x.H/8, x.W/8)
-      score = self.bn2(score + S_input[-3])  # element-wise add, size=(N, 256, x.H/8, x.W/8)
-      score = self.bn3(self.relu(self.deconv3(score)))  # size=(N, 128, x.H/4, x.W/4)
-      score = self.classifier(score)  # size=(N, n_class, x.H/1, x.W/1)
-      S = self.sg_sigmoid(score)
+      S = self.inplace_relu(self.sg_deconv1(S_input[-1]))  # size=(N, 512, x.H/16, x.W/16)
+      S = self.sg_bn1(S + S_input[-2])  # element-wise add, size=(N, 512, x.H/16, x.W/16)
+      S = self.inplace_relu(self.sg_deconv2(S))  # size=(N, 256, x.H/8, x.W/8)
+      S = self.sg_bn2(S + S_input[-3])  # element-wise add, size=(N, 256, x.H/8, x.W/8)
+      S = self.inplace_relu(self.sg_deconv3(S))
+      S = self.sg_bn3(S + S_input[-4])  # size=(N, 128, x.H/4, x.W/4)
+      S = self.sg_classifier(S)  # size=(N, n_class, x.H/1, x.W/1)
+      S = self.sg_sigmoid(S)
     else:
       S = torch.zeros_like(S_lbl)
 
