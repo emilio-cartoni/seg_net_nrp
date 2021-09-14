@@ -53,7 +53,6 @@ class PredNetVGG(nn.Module):
     self.bu_pool = nn.MaxPool2d(
       kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
     self.bu_drop = nn.ModuleList([nn.Dropout2d(p=r) for r in self.dropout_rates])
-    # self.bu_drop = nn.ModuleList([nn.Dropout(p=r) for r in self.dropout_rates])
 
     # Lateral connections (la)
     la_conv = []
@@ -98,7 +97,6 @@ class PredNetVGG(nn.Module):
       self.pr_deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
       self.pr_bn3 = nn.BatchNorm2d(32)
       self.pr_classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
-      self.pr_hardtanh = nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False)
 
     # Segmentation prediction (sg)
     if len(self.sg_layers) > 0:
@@ -109,7 +107,6 @@ class PredNetVGG(nn.Module):
       self.sg_deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
       self.sg_bn3 = nn.BatchNorm2d(32)
       self.sg_classifier = nn.Conv2d(32, self.n_classes, kernel_size=1)
-      self.sg_sigmoid = nn.Sigmoid()
 
     # Put model on gpu
     self.to('cuda')
@@ -164,7 +161,6 @@ class PredNetVGG(nn.Module):
       P = self.inplace_relu(self.pr_deconv3(P))
       P = self.pr_bn3(P + P_input[-4])  # size=(N, 128, x.H/4, x.W/4)
       P = self.pr_classifier(P)  # size=(N, n_class, x.H/1, x.W/1)
-      P = self.pr_hardtanh(P)
     else:
       P = torch.zeros_like(S_lbl[:, :3])  # yeah...
 
@@ -182,7 +178,7 @@ class PredNetVGG(nn.Module):
       S = self.inplace_relu(self.sg_deconv3(S))
       S = self.sg_bn3(S + S_input[-4])  # size=(N, 128, x.H/4, x.W/4)
       S = self.sg_classifier(S)  # size=(N, n_class, x.H/1, x.W/1)
-      S = self.sg_sigmoid(S)
+      # S = self.sg_sigmoid(S)
     else:
       S = torch.zeros_like(S_lbl)
 

@@ -77,7 +77,7 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
   return plot_loss_valid
 
 
-bce_loss_fn = nn.BCELoss()
+#bce_loss_fn = nn.BCELoss()
 mse_loss_fn = nn.MSELoss()
 
 
@@ -85,7 +85,7 @@ def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
   lat_loss = sum([w * (mse_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
   img_loss = mse_loss_fn(P, frame) * loss_w['img']
-  seg_loss = bce_loss_fn(S, S_lbl) * loss_w['seg']
+  seg_loss = mse_loss_fn(S, S_lbl) * loss_w['seg']
   total_loss = lat_loss + img_loss + seg_loss
   print(f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} ' +
     f'[latent: {lat_loss:.3f}, image: {img_loss:.3f}, segm: {seg_loss:.3f}]', end='')

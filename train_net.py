@@ -5,7 +5,7 @@ from src.dataset_fn import get_datasets_seg
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 10, None
-name = 'VGGNotTrainableLowLR'
+name = 'VGGNotTrainableNoActivation'
 do_time_aligned, do_untouched_bu, do_bens_idea = True, False, True
 batch_size_train, batch_size_valid = 1, 4
 vgg_type, n_layers, t_start = 'vgg19', 4, 1
