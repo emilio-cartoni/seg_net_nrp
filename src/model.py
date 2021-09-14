@@ -213,8 +213,8 @@ class PredNetVGG(nn.Module):
       'valid_losses': valid_losses},
       f'./ckpt/{self.model_name}/ckpt_{last_epoch:02}.pt')
     print('SAVED')
-    plt.plot(list(range(last_epoch)), valid_losses, label='valid')
-    plt.plot(list(range(last_epoch)), train_losses, label='train')
+    plt.plot(list(range(int(last_epoch))), valid_losses, label='valid')
+    plt.plot(list(range(int(last_epoch))), train_losses, label='train')
     plt.legend()
     plt.savefig(f'./ckpt/{self.model_name}/loss_plot.png')
     plt.close()
