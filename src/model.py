@@ -43,8 +43,9 @@ class PredNetVGG(nn.Module):
 
     # Bottom-up connections (bu)
     vgg = torch.hub.load('pytorch/vision:v0.10.0', vgg_type, pretrained=True)
+
     for param in vgg.parameters():
-        param.requires_grad = False
+      param.requires_grad = False
     bu_conv = []
     for l in range(self.n_layers):
       bu_conv.append(vgg.features[vgg_indexes[vgg_type][l][0]:vgg_indexes[vgg_type][l][1]])
@@ -139,8 +140,8 @@ class PredNetVGG(nn.Module):
     for l in range(self.n_layers):
       A = self.bu_drop[l](self.bu_conv[l](A))
       A_hat = self.la_conv[l](R_pile[l])
-      # E_pile[l] = torch.abs(A - A_hat)
       error = torch.abs(A - A_hat)
+      #E_pile[l] = (1.0 + error)
       E_pile[l] = A * (1.0 + error / error.sum())
       error_pile[l] = error
       if l < self.n_layers - 1:

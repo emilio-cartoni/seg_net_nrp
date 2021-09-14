@@ -24,8 +24,9 @@ def train_fn(train_dl, model, optimizer, loss_w, t_start, epoch, plot_gif=True):
         P_seq.append(P)
         S_seq.append(S)
         if t >= t_start:
-          loss = loss_fn(
-            A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
+          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
+          # P_size = P.size()
+          # loss = loss_fn(torch.randn(size=P_size).cuda() * P, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
           optimizer.zero_grad()
           loss.backward()
           nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
@@ -61,8 +62,7 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
         P_seq.append(P)
         S_seq.append(S)
         if t >= t_start:
-          loss = loss_fn(
-            A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
+          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
           batch_loss_valid += loss.detach().item() / n_frames
       plot_loss_valid += batch_loss_valid / n_batches
       if batch_idx == 0 and plot_gif:
@@ -79,8 +79,9 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
 
 bce_loss_fn = nn.BCELoss()
 mse_loss_fn = nn.MSELoss()
-def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
 
+
+def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
   lat_loss = sum([w * (mse_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
   img_loss = mse_loss_fn(P, frame) * loss_w['img']

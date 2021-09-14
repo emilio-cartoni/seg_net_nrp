@@ -5,6 +5,7 @@ from src.dataset_fn import get_datasets_seg
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 10, None
+name = 'VGGNotTrainableLowLR'
 do_time_aligned, do_untouched_bu, do_bens_idea = True, False, True
 batch_size_train, batch_size_valid = 1, 4
 vgg_type, n_layers, t_start = 'vgg19', 4, 1
@@ -12,14 +13,15 @@ pr_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])  # set as [] for no
 sg_layers = tuple([l for l in [0, 1, 2, 3] if l < n_layers])  # set as [] for not doing it
 td_channels = td_channels = (32, 64, 128, 256) if do_bens_idea else (64, 128, 256, 512)
 td_channels = td_channels[:n_layers]
-learning_rate, dropout_rates = 1e-5, (0.0, 0.0, 0.0, 0.0)[:n_layers]
+learning_rate, dropout_rates = 3e-4, (0, 0, 0, 0)[:n_layers] # to try: increase by e1
 loss_w = {
-  'lat': (0.1, 0.1, 0.1, 0.1)[:n_layers],
+  'lat': (10, 10, 10, 10)[:n_layers],
   'img': 100.0 if len(pr_layers) > 0 else 0.0,
   'seg': 100.0 if len(sg_layers) > 0 else 0.0}
 model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
            + f'_BI{int(do_bens_idea)}_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
-           + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'
+           + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'\
+           + f'_name{name}'
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 
 # Dataset
@@ -42,7 +44,7 @@ if not load_model:
     td_channels, dropout_rates, do_time_aligned, do_untouched_bu, do_bens_idea)
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
-  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5)
+  scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [10, 20, 30, 40, 50], gamma=0.01)
   train_losses, valid_losses = [], []
 else:
   print(f'\nLoading model: {model_name}')
