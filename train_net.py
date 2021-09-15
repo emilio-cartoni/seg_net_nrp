@@ -59,6 +59,6 @@ for epoch in range(last_epoch, last_epoch + n_epochs_run):
   print(f'\nEpoch n°{epoch}')
   train_losses.append(train_fn(train_dl, model, optimizer, loss_w, t_start, epoch))
   valid_losses.append(valid_fn(valid_dl, model, loss_w, t_start, epoch))
-  scheduler.step(valid_losses[-1])
+  scheduler.step()
   if (epoch + 1) % n_epoch_save == 0:
     model.save_model(optimizer, scheduler, train_losses, valid_losses)
