@@ -97,9 +97,9 @@ def plot_recons(batch, sg_lbl, P_seq, S_seq,
 
   batch_size, n_channels, n_rows, n_cols, n_frames = batch.shape
   img_plot = batch.detach().cpu().numpy() * VGG_STD + VGG_MEAN
-  rec_plot = P_seq.detach().cpu().numpy() * VGG_STD + VGG_MEAN
+  rec_plot = np.clip(P_seq.detach().cpu().numpy() * VGG_STD + VGG_MEAN, 0, 1)
   seg_lbl = onehot_to_rgb(sg_lbl.detach().cpu().numpy())
-  seg_plot = onehot_to_rgb(S_seq.detach().cpu().numpy())
+  seg_plot = np.clip(onehot_to_rgb(S_seq.detach().cpu().numpy()), 0, 1)
   v_rect = np.ones((batch_size, n_channels, n_rows, 10, n_frames))
   data_rec = np.concatenate(
     (img_plot, v_rect, rec_plot, v_rect, v_rect, seg_lbl, v_rect, seg_plot), axis=3)
