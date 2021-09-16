@@ -7,6 +7,9 @@ from src.dataset_fn import VGG_MEAN, VGG_STD
 VGG_MEAN = np.array(VGG_MEAN)[None, :, None, None, None]
 VGG_STD = np.array(VGG_STD)[None, :, None, None, None]
 
+mae_loss_fn = nn.L1Loss()
+timestep_multiplier = np.concatenate((np.zeros(10), np.ones(91)))
+
 
 def train_fn(train_dl, model, optimizer, loss_w, t_start, epoch, plot_gif=True):
 
@@ -25,7 +28,7 @@ def train_fn(train_dl, model, optimizer, loss_w, t_start, epoch, plot_gif=True):
         P_seq.append(P)
         S_seq.append(S)
         if t >= t_start:
-          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
+          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches, t)
           # P_size = P.size()
           # loss = loss_fn(torch.randn(size=P_size).cuda() * P, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
           optimizer.zero_grad()
@@ -63,7 +66,7 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
         P_seq.append(P)
         S_seq.append(S)
         if t >= t_start:
-          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches)
+          loss = loss_fn(A, S_lbl, E, P, S, loss_w, batch_idx, n_batches, t)
           batch_loss_valid += loss.detach().item() / n_frames
       plot_loss_valid += batch_loss_valid / n_batches
       if batch_idx == 0 and plot_gif:
@@ -76,8 +79,6 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
 
   print(f'\r\nEpoch valid loss : {plot_loss_valid}')
   return plot_loss_valid
-
-mae_loss_fn = nn.L1Loss()
 
 
 def dice_loss_fn(input, target):
@@ -92,11 +93,11 @@ def dice_loss_fn(input, target):
   return torch.mean(1. - dice_score)
 
 
-def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
+def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches, t):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
-  lat_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
-  img_loss = mae_loss_fn(P, frame) * loss_w['img']
-  seg_loss = dice_loss_fn(S, S_lbl) * loss_w['seg']
+  lat_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])]) * timestep_multiplier[t]
+  img_loss = mae_loss_fn(P, frame) * loss_w['img'] * timestep_multiplier[t]
+  seg_loss = dice_loss_fn(S, S_lbl) * loss_w['seg'] * timestep_multiplier[t]
   total_loss = lat_loss + img_loss + seg_loss
   print(f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} ' +
     f'[latent: {lat_loss:.3f}, image: {img_loss:.3f}, segm: {seg_loss:.3f}]', end='')
@@ -108,12 +109,12 @@ def plot_recons(batch, sg_lbl, P_seq, S_seq,
 
   batch_size, n_channels, n_rows, n_cols, n_frames = batch.shape
   img_plot = batch.detach().cpu().numpy() * VGG_STD + VGG_MEAN
-  rec_plot = np.clip(P_seq.detach().cpu().numpy() * VGG_STD + VGG_MEAN, 0, 1)
+  prediction_plot = np.clip(P_seq.detach().cpu().numpy() * VGG_STD + VGG_MEAN, 0, 1)
   seg_lbl = onehot_to_rgb(sg_lbl.detach().cpu().numpy())
   seg_plot = np.clip(onehot_to_rgb(S_seq.detach().cpu().numpy()), 0, 1)
   v_rect = np.ones((batch_size, n_channels, n_rows, 10, n_frames))
   data_rec = np.concatenate(
-    (img_plot, v_rect, rec_plot, v_rect, v_rect, seg_lbl, v_rect, seg_plot), axis=3)
+    (img_plot, v_rect, prediction_plot, v_rect, v_rect, seg_lbl, v_rect, seg_plot), axis=3)
   out_batch = data_rec.transpose((0, 2, 3, 1, 4))
   for s_idx in sample_indexes:
     out_seq = out_batch[s_idx]
