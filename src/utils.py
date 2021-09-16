@@ -77,8 +77,7 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
   print(f'\r\nEpoch valid loss : {plot_loss_valid}')
   return plot_loss_valid
 
-
-mse_loss_fn = nn.MSELoss()
+mae_loss_fn = nn.L1Loss()
 
 
 def dice_loss_fn(input, target):
@@ -95,8 +94,8 @@ def dice_loss_fn(input, target):
 
 def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
-  lat_loss = sum([w * (mse_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
-  img_loss = mse_loss_fn(P, frame) * loss_w['img']
+  lat_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
+  img_loss = mae_loss_fn(P, frame) * loss_w['img']
   seg_loss = dice_loss_fn(S, S_lbl) * loss_w['seg']
   total_loss = lat_loss + img_loss + seg_loss
   print(f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} ' +
