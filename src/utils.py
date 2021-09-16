@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import imageio
+import torch.nn.functional as F
 from src.dataset_fn import VGG_MEAN, VGG_STD
 VGG_MEAN = np.array(VGG_MEAN)[None, :, None, None, None]
 VGG_STD = np.array(VGG_STD)[None, :, None, None, None]
@@ -77,15 +78,26 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
   return plot_loss_valid
 
 
-#bce_loss_fn = nn.BCELoss()
 mse_loss_fn = nn.MSELoss()
+
+
+def dice_loss_fn(input, target):
+  # modified from torchgeometry.losses
+
+  input_soft = F.softmax(input, dim=1)
+  dims = (1, 2, 3)
+  intersection = torch.sum(input_soft * target, dims)
+  cardinality = torch.sum(input_soft + target, dims)
+
+  dice_score = 2. * intersection / (cardinality + 1e-6)
+  return torch.mean(1. - dice_score)
 
 
 def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
   lat_loss = sum([w * (mse_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])])
   img_loss = mse_loss_fn(P, frame) * loss_w['img']
-  seg_loss = mse_loss_fn(S, S_lbl) * loss_w['seg']
+  seg_loss = dice_loss_fn(S, S_lbl) * loss_w['seg']
   total_loss = lat_loss + img_loss + seg_loss
   print(f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} ' +
     f'[latent: {lat_loss:.3f}, image: {img_loss:.3f}, segm: {seg_loss:.3f}]', end='')
