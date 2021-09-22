@@ -8,7 +8,8 @@ VGG_MEAN = np.array(VGG_MEAN)[None, :, None, None, None]
 VGG_STD = np.array(VGG_STD)[None, :, None, None, None]
 
 mae_loss_fn = nn.L1Loss()
-timestep_multiplier = np.concatenate((np.zeros(10), np.ones(91)))
+timestep_multiplier = np.concatenate((np.zeros(14), np.ones(91)))
+ce_loss_fn = nn.BCEWithLogitsLoss()
 
 
 def train_fn(train_dl, model, optimizer, loss_w, t_start, epoch, plot_gif=True):
@@ -81,23 +82,11 @@ def valid_fn(valid_dl, model, loss_w, t_start, epoch, plot_gif=True):
   return plot_loss_valid
 
 
-def dice_loss_fn(input, target):
-  # modified from torchgeometry.losses
-
-  input_soft = F.softmax(input, dim=1)
-  dims = (1, 2, 3)
-  intersection = torch.sum(input_soft * target, dims)
-  cardinality = torch.sum(input_soft + target, dims)
-
-  dice_score = 2. * intersection / (cardinality + 1e-6)
-  return torch.mean(1. - dice_score)
-
-
 def loss_fn(frame, S_lbl, E, P, S, loss_w, batch_idx, n_batches, t):
   zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
   lat_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_w['lat'])]) * timestep_multiplier[t]
   img_loss = mae_loss_fn(P, frame) * loss_w['img'] * timestep_multiplier[t]
-  seg_loss = dice_loss_fn(S, S_lbl) * loss_w['seg'] * timestep_multiplier[t]
+  seg_loss = ce_loss_fn(S, S_lbl) * loss_w['seg'] * timestep_multiplier[t]
   total_loss = lat_loss + img_loss + seg_loss
   print(f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} ' +
     f'[latent: {lat_loss:.3f}, image: {img_loss:.3f}, segm: {seg_loss:.3f}]', end='')
@@ -111,7 +100,7 @@ def plot_recons(batch, sg_lbl, P_seq, S_seq,
   img_plot = batch.detach().cpu().numpy() * VGG_STD + VGG_MEAN
   prediction_plot = np.clip(P_seq.detach().cpu().numpy() * VGG_STD + VGG_MEAN, 0, 1)
   seg_lbl = onehot_to_rgb(sg_lbl.detach().cpu().numpy())
-  seg_plot = np.clip(onehot_to_rgb(S_seq.detach().cpu().numpy()), 0, 1)
+  seg_plot = onehot_to_rgb(S_seq.detach().cpu().numpy())
   v_rect = np.ones((batch_size, n_channels, n_rows, 10, n_frames))
   data_rec = np.concatenate(
     (img_plot, v_rect, prediction_plot, v_rect, v_rect, seg_lbl, v_rect, seg_plot), axis=3)
@@ -124,11 +113,11 @@ def plot_recons(batch, sg_lbl, P_seq, S_seq,
 
 
 def onehot_to_rgb(onehot_tensor):
-  batch_size, n_classes, w, h, n_frames = onehot_tensor.shape
+  batch_size, num_classes, w, h, n_frames = onehot_tensor.shape
   rgb_tensor = np.zeros((batch_size, 3, w, h, n_frames))
-  hue_space = np.linspace(0.0, 1.0, n_classes + 1)[:-1]
+  hue_space = np.linspace(0.0, 1.0, num_classes + 1)[:-1]
   rgb_space = [hsv_to_rgb(hue) for hue in hue_space]
-  for n in range(n_classes):
+  for n in range(num_classes):
     class_tensor = onehot_tensor[:, n]
     for c, color in enumerate(rgb_space[n]):
       rgb_tensor[:, c] += color * class_tensor

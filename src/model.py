@@ -96,7 +96,7 @@ class PredNetVGG(nn.Module):
       self.pr_bn2 = nn.BatchNorm2d(64)
       self.pr_deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
       self.pr_bn3 = nn.BatchNorm2d(32)
-      self.pr_classifier = nn.Conv2d(32, self.n_classes - 1, kernel_size=1)
+      self.pr_classifier = nn.Conv2d(32, 3, kernel_size=1)
       self.pr_hardtanh = nn.Hardtanh(min_val=0.0, max_val=1.0, inplace=False)
 
     # Segmentation prediction (sg)

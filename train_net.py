@@ -1,11 +1,12 @@
 import torch
+import numpy as np
 from src.model import PredNetVGG
 from src.utils import train_fn, valid_fn
 from src.dataset_fn import get_datasets_seg
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 10, None
-name = 'VGGNotTrainableNoActivation'
+name = 'VGGNotTrainableUpsamplePredictionNoSoftmax'
 do_time_aligned, do_untouched_bu, do_bens_idea = True, False, True
 batch_size_train, batch_size_valid = 1, 4
 vgg_type, n_layers, t_start = 'vgg19', 4, 1
@@ -15,7 +16,7 @@ td_channels = td_channels = (32, 64, 128, 256) if do_bens_idea else (64, 128, 25
 td_channels = td_channels[:n_layers]
 learning_rate, dropout_rates = 3e-4, (0, 0, 0, 0)[:n_layers] # to try: increase by e1
 loss_w = {
-  'lat': (10, 10, 10, 10)[:n_layers],
+  'lat': (1, 1, 1, 1)[:n_layers],
   'img': 100.0 if len(pr_layers) > 0 else 0.0,
   'seg': 100.0 if len(sg_layers) > 0 else 0.0}
 model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
@@ -29,7 +30,7 @@ dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
 # dataset_path = r'D:\DL\datasets\kitti\mots'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
 n_frames = 100
-augmentation, remove_ground, speedup_factor = True, True, 1
+augmentation, remove_ground, speedup_factor = True, False, 1
 n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
   dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
@@ -44,7 +45,7 @@ if not load_model:
     td_channels, dropout_rates, do_time_aligned, do_untouched_bu, do_bens_idea)
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
-  scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [10, 20, 30, 40, 50], gamma=0.01)
+  scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, np.arange(3, 18, 3), gamma=0.1)
   train_losses, valid_losses = [], []
 else:
   print(f'\nLoading model: {model_name}')
