@@ -1,16 +1,15 @@
 import torch.utils.data as data
 import numpy as np
-# import torchvideo.transforms as VT
 import torchvision.transforms as IT
 import torchvision.transforms.functional as TF
-import PIL
-import warnings
 import os
 import random
 import torch
 from PIL import Image
-VGG_MEAN = [0.0, 0.0, 0.0]
-VGG_STD = [1.0, 1.0, 1.0]
+# DATASET_MEAN = [0.38, 0.38, 0.38]
+# DATASET_STD = [0.28, 0.28, 0.28]
+DATASET_MEAN = [0.00, 0.00, 0.00]  # use this to have data between 0.0 and 1.0
+DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
 class Mots_Dataset(data.Dataset):
@@ -21,11 +20,6 @@ class Mots_Dataset(data.Dataset):
     self.n_classes = n_classes
     self.n_frames = n_frames  # idea: variable n_frames for each batch?
     self.remove_ground = remove_ground
-    # self.sample_transform = IT.Compose([
-    #   IT.RandomResizedCrop(size=(224, 224)),
-    #   IT.ToTensor()])
-    # IT.Normalize(mean=VGG_MEAN, std=VGG_STD)
-    self.label_transform = IT.ToTensor()
 
   def transform(self, list_of_images):
     """
@@ -41,12 +35,14 @@ class Mots_Dataset(data.Dataset):
       A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
     """
     transformed_images = []
-    resize = IT.transforms.Resize(size=(224, 224), interpolation=IT.InterpolationMode.NEAREST)
-    i, j, h, w = IT.transforms.RandomCrop.get_params(list_of_images[0][0], output_size=(350, 350))
+    resize = IT.Resize(size=(160, 512), interpolation=IT.InterpolationMode.NEAREST)
+    normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
+    i, j, h, w = IT.RandomCrop.get_params(list_of_images[0][0], output_size=(320, 1024))
     for image, label in list_of_images:
       image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
       image, label = resize(image), resize(label)
       image, label = TF.to_tensor(np.array(image)), TF.to_tensor(np.array(label))
+      image = normalize(image)
       transformed_images.append((image, label))
     return transformed_images
 
@@ -62,43 +58,30 @@ class Mots_Dataset(data.Dataset):
     first_frame = random.choice(np.arange(len(sample_paths) - n_frames))
     sample_frames = sample_paths[first_frame:first_frame + n_frames]
     label_frames = label_paths[first_frame:first_frame + n_frames]
-    # for frame in sample_paths:
-    # samples_and_labels = self.transform([(Image.open(os.path.join(sample_dir, p)), Image.open(os.path.join(label_dir, p))) for p in sample_frames])
+
     samples_and_labels = []
     for i in range(n_frames):
       sample = Image.open(os.path.join(sample_dir, sample_frames[i]))
       label = Image.open(os.path.join(label_dir, label_frames[i]))
-      g = np.unique(np.array(label))
       samples_and_labels.append((sample, label))
     samples_and_labels = self.transform(samples_and_labels)
 
     samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
     labels = torch.stack([item[1] for item in samples_and_labels], dim=-1)
-    # if self.remove_ground:
-    #   labels[labels == 10000] = 0
-    #   warnings.warn('UserWarning: by setting remove_background = True, if you are using the MOTS dataset, you are'
-    #                 ' collapsing the background class with the ignore region class.')
-    y = torch.unique(labels)
     labels = torch.div(labels, 1000, rounding_mode='floor')
-    z = torch.unique(labels)
     labels[labels == 10] = self.n_classes - int(not self.remove_ground)
-    x = torch.unique(labels)
     labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes + int(self.remove_ground))
     labels = torch.movedim(labels, -1, 1)
     labels = torch.squeeze(labels, dim=0)
     labels = labels.type(torch.FloatTensor)
     if self.remove_ground:
       labels = labels[1:]
-    #sample = self.sample_transform(Image.open(os.path.join(sample_dir, frame)))
-    # labels = [self.transform(Image.open(os.path.join(label_dir, p))) for p in sample_frames] # espescially output dims? might have to use permute
-    # labels[labels == 10] = 0
-
-    return samples.to(device='cuda'), labels.to(device='cuda')
+    return samples, labels
 
 
 def get_datasets_seg(root_dir, train_valid_ratio,
                      batch_size_train, batch_size_valid, n_frames,
-                     augmentation, n_classes, speedup_factor, remove_ground):
+                     augmentation, n_classes, remove_ground):
   
   # Data train valid
   training_folders = os.listdir(os.path.join(root_dir, 'training', 'image_02'))
@@ -114,6 +97,15 @@ def get_datasets_seg(root_dir, train_valid_ratio,
   valid_dataset = Mots_Dataset(root_dir, valid_subfolders, n_classes, n_frames, remove_ground)
   valid_dataloader = data.DataLoader(
     valid_dataset, batch_size=batch_size_valid, shuffle=True)
+
+  # label_mean = torch.tensor([0.0, 0.0, 0.0, 0.0]).cuda()
+  # for sample, label in train_dataloader:
+  #   label_mean = label_mean + torch.mean(label, dim=(0, 2, 3, 4))
+  # for sample, label in valid_dataloader:
+  #   label_mean = label_mean + torch.mean(label, dim=(0, 2, 3, 4))
+  # label_mean = label_mean / (len(train_dataloader) + len(valid_dataloader))
+  # print(label_mean)
+  # exit()
 
   # Return the dataloaders to the computer
   return train_dataloader, valid_dataloader
