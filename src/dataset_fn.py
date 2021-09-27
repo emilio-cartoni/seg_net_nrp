@@ -154,12 +154,12 @@ def get_datasets_seg(root_dir, train_valid_ratio,
   # Training dataloader
   train_dataset = Mots_Dataset(root_dir, train_subfolders, n_classes, n_frames, remove_ground)
   train_dataloader = data.DataLoader(
-    train_dataset, batch_size=batch_size_train, shuffle=True)
+    train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True)
 
   # Validation dataloader
   valid_dataset = Mots_Dataset(root_dir, valid_subfolders, n_classes, n_frames, remove_ground)
   valid_dataloader = data.DataLoader(
-    valid_dataset, batch_size=batch_size_valid, shuffle=True)
+    valid_dataset, batch_size=batch_size_valid, shuffle=True, pin_memory=True)
 
   # label_mean = torch.tensor([0.0, 0.0, 0.0, 0.0]).cuda()
   # for sample, label in train_dataloader:
