@@ -172,7 +172,7 @@ class PredNetVGG(nn.Module):
       E = self.E_state[l]
       if l != self.n_layers - 1:
         E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-      R_pile[l] = self.td_attn[l](E)
+      E = self.td_attn[l](E)
       R_pile[l] = self.td_norm[l](self.td_conv[l](E, R))
 
     # Bottom-up pass
