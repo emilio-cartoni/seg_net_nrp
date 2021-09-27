@@ -1,27 +1,28 @@
 import torch
 import numpy as np
+# import pytorch_lightning as pl
 from src.model import PredNetVGG
 from src.utils import train_fn, valid_fn
 from src.dataset_fn import get_datasets_seg
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 5, None
-name = 'HiIAmAlban'
+name = 'Alban'
 do_train_vgg, do_untouched_bu = False, False
-do_time_aligned, do_bens_idea, do_saliency = True, True, False
-batch_size_train, batch_size_valid = 1, 4
+do_time_aligned, do_bens_idea, do_saliency = True, False, False
+batch_size_train, batch_size_valid = 1, 5
 vgg_type, n_layers, t_start = 'vgg19', 4, 10
 pr_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 sg_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 td_channels = td_channels = (32, 64, 128, 256, 512) if do_bens_idea else (32, 64, 128, 256, 512)
 td_channels = td_channels[:n_layers]
-learning_rate, dropout_rates = 3e-4, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers] # to try: increase by e1
+learning_rate, dropout_rates = 1e-3, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers] # to try: increase by e1
 loss_w = {
   'latent': (1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
   'img_bce': 0.0 if len(pr_layers) > 0 else 0.0,
-  'img_mae': 100.0 if len(pr_layers) > 0 else 0.0,
+  'img_mae': 10.0 if len(pr_layers) > 0 else 0.0,
   'img_mse': 0.0 if len(pr_layers) > 0 else 0.0,
-  'seg_bce': 100.0 if len(sg_layers) > 0 else 0.0,
+  'seg_bce': 0.0 if len(sg_layers) > 0 else 0.0,
   'seg_mse': 0.0 if len(sg_layers) > 0 else 0.0,
   'seg_foc': 0.0 if len(sg_layers) > 0 else 0.0,
   'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
@@ -37,7 +38,7 @@ do_segmentation = not (len(sg_layers) == 0 or sum([loss_w['seg_' + k] for k in [
 # dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
 dataset_path = r'D:\DL\datasets\kitti\mots'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
-n_frames = 100
+n_frames, n_backprop_frames = 100, 1
 augmentation, remove_ground = True, False
 n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
@@ -54,7 +55,7 @@ if not load_model:
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
   scheduler = torch.optim.lr_scheduler.MultiStepLR(
-    optimizer, range(10, (n_epochs_run + 1) * 10, 10), gamma=0.5)
+    optimizer, range(5, (n_epochs_run + 1) * 5, 5), gamma=0.5)
   train_losses, valid_losses = [], []
 else:
   print(f'\nLoading model: {model_name}')
@@ -67,7 +68,8 @@ n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f'Training network ({n_params} trainable parameters)')
 for epoch in range(last_epoch, last_epoch + n_epochs_run):
   print(f'\nEpoch n°{epoch}')
-  train_losses.append(train_fn(train_dl, model, optimizer, loss_w, t_start, epoch))
+  train_losses.append(train_fn(
+    train_dl, model, optimizer, loss_w, t_start, n_backprop_frames, epoch))
   valid_losses.append(valid_fn(valid_dl, model, loss_w, t_start, epoch))
   scheduler.step()
   if (epoch + 1) % n_epoch_save == 0:

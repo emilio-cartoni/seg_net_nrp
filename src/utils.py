@@ -14,7 +14,8 @@ mae_loss_fn = nn.L1Loss()
 foc_loss_fn = FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')
 dice_loss_fn = DiceLoss()
 
-def train_fn(train_dl, model, optimizer, loss_weight, t_start, epoch, plot_gif=True):
+def train_fn(
+  train_dl, model, optimizer, loss_weight, t_start, n_backprop_frames, epoch, plot_gif=True):
 
   model.train()
   plot_loss_train = 0.0
@@ -25,6 +26,7 @@ def train_fn(train_dl, model, optimizer, loss_weight, t_start, epoch, plot_gif=T
       batch_loss_train = 0.0
       P_seq, S_seq = [], []
       n_frames = batch.shape[-1]
+      loss = 0.0
       for t in range(TA, TA + n_frames):
         A = batch[..., t - TA].to(device='cuda')
         S_lbl = sg_lbl[..., t - TA].to(device='cuda')
@@ -32,16 +34,18 @@ def train_fn(train_dl, model, optimizer, loss_weight, t_start, epoch, plot_gif=T
         P_seq.append(P)
         S_seq.append(S)
         time_weight = float(t >= t_start)
-        loss = loss_fn(
+        loss = loss + loss_fn(
           A, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches)
-        optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
-        optimizer.step()
-        model.A_state = [s.detach() for s in model.A_state]
-        model.E_state = [s.detach() for s in model.E_state]
-        model.R_state = [s.detach() for s in model.R_state]
-        batch_loss_train += loss.detach().item() / n_frames
+        if (t - TA + 1) % n_backprop_frames == 0:
+          optimizer.zero_grad()
+          loss.backward()
+          nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
+          optimizer.step()
+          model.A_state = [s.detach() for s in model.A_state]
+          model.E_state = [s.detach() for s in model.E_state]
+          model.R_state = [s.detach() for s in model.R_state]
+          batch_loss_train += loss.detach().item() / n_frames
+          loss = 0.0
       plot_loss_train += batch_loss_train / n_batches
       if batch_idx == 0 and plot_gif:
         P_seq = torch.stack(P_seq, axis=-1)
@@ -73,7 +77,7 @@ def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
         time_weight = float(t >= t_start)
         loss = loss_fn(
           A, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches)
-        batch_loss_valid += loss.detach().item() / n_frames
+        batch_loss_valid += loss.item() / n_frames
       plot_loss_valid += batch_loss_valid / n_batches
       if batch_idx == 0 and plot_gif:
         P_seq = torch.stack(P_seq, axis=-1)
@@ -107,7 +111,11 @@ def loss_fn(frame, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batche
   # Total loss
   img_loss = img_bce_loss + img_mae_loss + img_mse_loss
   seg_loss = seg_bce_loss + seg_foc_loss + seg_mse_loss + seg_dice_loss
-  total_loss = latent_loss + img_loss + seg_loss
+  total_loss = latent_loss
+  if img_loss > 0:
+    total_loss = total_loss + img_loss
+  if seg_loss > 0:
+    total_loss = total_loss + seg_loss
   print(
     f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} [' +
     f'latent: {latent_loss:.3f}, ' +
@@ -117,6 +125,7 @@ def loss_fn(frame, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batche
     f'foc: {seg_foc_loss:.3f}, mse: {seg_mse_loss:.3f}, dice: {seg_dice_loss:.3f})' +
     f']', end='')
   return total_loss * time_weight
+
 
 def plot_recons(batch, sg_lbl, P_seq, S_seq,
   epoch=0, sample_indexes=(0,), output_dir='./', mode='train'):
