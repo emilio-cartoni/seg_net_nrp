@@ -17,7 +17,7 @@ n_frames = 2 * (n_blank_frames) + n_sqm_frames
 make_white_background = False
 
 def sqm_patch(
-  line_height, line_width, line_luminance, vertical_gap, offset):
+    line_height, line_width, line_luminance, vertical_gap, offset):
 
     patch_size = (2 * line_height + vertical_gap, line_width + abs(offset))
     patch = np.zeros(patch_size + (n_channels,))
@@ -31,29 +31,29 @@ for frame in range(n_frames):
     image = np.zeros(image_size + (n_channels,))
     #image = np.random.uniform(low=0.0, high=255., size=(image_size + (n_channels,)))
     if n_blank_frames <= frame < n_frames - n_blank_frames:
-      sqm_frame = (frame - n_blank_frames) // 1
-      if 1:  # (frame % 2) == ((n_blank_frames % 2) != 0):
+        sqm_frame = (frame - n_blank_frames) // 1
+        if 1:  # (frame % 2) == ((n_blank_frames % 2) != 0):
         
-        try:
-          offset = frame_offsets[sqm_frame]
-        except KeyError:
-          offset = 0
-        
-        left_patch = sqm_patch(line_height, line_width, line_luminance, vertical_gap, offset)
-        right_patch = sqm_patch(line_height, line_width, line_luminance, vertical_gap, 0)
+            try:
+                offset = frame_offsets[sqm_frame]
+            except KeyError:
+                offset = 0
+            
+            left_patch = sqm_patch(line_height, line_width, line_luminance, vertical_gap, offset)
+            right_patch = sqm_patch(line_height, line_width, line_luminance, vertical_gap, 0)
 
-        first_row = image.shape[0] // 2 - left_patch.shape[0] // 2
-        first_col = image.shape[1] // 2 - left_patch.shape[1] // 2 + stream_speed * sqm_frame
-        last_row = first_row + left_patch.shape[0]
-        last_col = first_col + left_patch.shape[1]
-        image[first_row:last_row, first_col:last_col, :] = left_patch
+            first_row = image.shape[0] // 2 - left_patch.shape[0] // 2
+            first_col = image.shape[1] // 2 - left_patch.shape[1] // 2 + stream_speed * sqm_frame
+            last_row = first_row + left_patch.shape[0]
+            last_col = first_col + left_patch.shape[1]
+            image[first_row:last_row, first_col:last_col, :] = left_patch
 
-        if sqm_frame > 0:
-          first_row = image.shape[0] // 2 - right_patch.shape[0] // 2
-          first_col = image.shape[1] // 2 - right_patch.shape[1] // 2 - stream_speed * sqm_frame
-          last_row = first_row + right_patch.shape[0]
-          last_col = first_col + right_patch.shape[1]
-          image[first_row:last_row, first_col:last_col, :] = right_patch
+            if sqm_frame > 0:
+                first_row = image.shape[0] // 2 - right_patch.shape[0] // 2
+                first_col = image.shape[1] // 2 - right_patch.shape[1] // 2 - stream_speed * sqm_frame
+                last_row = first_row + right_patch.shape[0]
+                last_col = first_col + right_patch.shape[1]
+                image[first_row:last_row, first_col:last_col, :] = right_patch
 
     if make_white_background:
         image[image == 255.] = 1.

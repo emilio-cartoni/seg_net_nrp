@@ -20,8 +20,8 @@ class hConvGRUCell(nn.Module):
         self.u1_gate.bias.data.log()
         self.u2_gate.bias.data = -self.u1_gate.bias.data
         if self.input_size != self.hidden_size:
-          self.input_gate = nn.Conv2d(input_size, hidden_size, 1)
-          nn.init.orthogonal_(self.input_gate.weight)
+            self.input_gate = nn.Conv2d(input_size, hidden_size, 1)
+            nn.init.orthogonal_(self.input_gate.weight)
 
         self.w_gate_inh = nn.Parameter(torch.empty(hidden_size , hidden_size , kernel_size, kernel_size))
         self.w_gate_exc = nn.Parameter(torch.empty(hidden_size , hidden_size , kernel_size, kernel_size))
@@ -44,15 +44,15 @@ class hConvGRUCell(nn.Module):
         self.bn = nn.ModuleList([nn.GroupNorm(hidden_size, hidden_size) for i in range(4)])
         # self.bn = nn.ModuleList([nn.BatchNorm2d(hidden_size, eps=1e-03) for i in range(4)])       
         for bn in self.bn:
-          nn.init.constant_(bn.weight, 0.1)
+            nn.init.constant_(bn.weight, 0.1)
 
     def forward(self, input_, state):  # , time=0):
 
         if self.input_size != self.hidden_size:
-          input_ = self.input_gate(input_)
+            input_ = self.input_gate(input_)
         if torch.sum(state) == 0.0:  # if time == 0:
-          state = torch.empty_like(input_)
-          nn.init.xavier_normal_(state)
+            state = torch.empty_like(input_)
+            nn.init.xavier_normal_(state)
 
         g1_t = torch.sigmoid(self.bn[0](self.u1_gate(state)))
         c1_t = self.bn[1](F.conv2d(state * g1_t, self.w_gate_inh, padding=self.padding))

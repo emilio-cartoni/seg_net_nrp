@@ -269,15 +269,15 @@ class BinaryFocalLossWithLogits(nn.Module):
 
 def dice_loss(out, lbl, do_logcosh, eps):
 
-  sum_dims = (2, 3)
-  inter = torch.sum(torch.mul(out, lbl), axis=sum_dims)
-  union = torch.sum(torch.add(out, lbl), axis=sum_dims)
-  dice_score = torch.mean((2 * inter + eps) / (union + eps))
+    sum_dims = (2, 3)
+    inter = torch.sum(torch.mul(out, lbl), axis=sum_dims)
+    union = torch.sum(torch.add(out, lbl), axis=sum_dims)
+    dice_score = torch.mean((2 * inter + eps) / (union + eps))
 
-  if do_logcosh:
-    return torch.log(torch.cosh(1.0 - dice_score))
-  else:
-    return 1.0 - dice_score
+    if do_logcosh:
+        return torch.log(torch.cosh(1.0 - dice_score))
+    else:
+        return 1.0 - dice_score
 
 
 class DiceLoss(nn.Module):
