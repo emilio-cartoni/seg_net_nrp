@@ -66,7 +66,7 @@ class PredNetVGG(nn.Module):
         for l in range(self.n_layers):
             inn, out = self.td_channels[l], self.bu_channels[l]
             la_conv.append(nn.Sequential(
-                nn.Conv2d(in_channels=inn, out_channels=out, kernel_size=3, padding=1),
+                nn.Conv2d(in_channels=inn, out_channels=out, kernel_size=5, padding=2),
                 nn.ReLU()))
         self.la_conv = nn.ModuleList(la_conv)
 
@@ -74,54 +74,24 @@ class PredNetVGG(nn.Module):
         td_conv, td_attn, td_attn_channel, td_attn_spatial = [], [], [], []
         for l in range(self.n_layers):
             inn, out = self.bu_channels[l] + self.td_channels[l + 1], self.td_channels[l]
-            td_attn_channel.append(ChannelAttention(inn))
-            td_attn_spatial.append(SpatialAttention())
-            # td_attn.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
-            td_conv.append(hConvGRUCell(inn, out, kernel_size=3))
+            # td_attn_channel.append(ChannelAttention(inn))
+            # td_attn_spatial.append(SpatialAttention())
+            td_attn.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
+            td_conv.append(hConvGRUCell(inn, out, kernel_size=5))
             # td_conv.append(nn.Conv2d(inn, out, kernel_size=3, padding=1))
         self.td_upsp = nn.Upsample(scale_factor=2)
-        # self.td_attn = nn.ModuleList(td_attn)
-        self.td_attn_channel = nn.ModuleList(td_attn_channel)
-        self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
+        self.td_attn = nn.ModuleList(td_attn)
+        # self.td_attn_channel = nn.ModuleList(td_attn_channel)
+        # self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
         self.td_conv = nn.ModuleList(td_conv)
 
         # Future frame prediction (pr)
         if self.do_prediction:
-            pr_upsp = []
-            for l in range(self.n_layers):
-                if 0 < l <= max(self.pr_layers):
-                    inn, out = self.td_channels[l], self.td_channels[l - 1]
-                    pr_upsp.append(nn.Sequential(
-                        nn.GroupNorm(inn, inn),
-                        nn.ConvTranspose2d(in_channels=inn, out_channels=out,
-                            kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-                        nn.ReLU()))  # [int(l == max(self.pr_layers)):])
-            self.pr_upsp = nn.ModuleList([None] + pr_upsp)  # None for indexing convenience
-            self.pr_conv = nn.Sequential(
-                nn.GroupNorm(self.td_channels[0], self.td_channels[0]),
-                nn.Conv2d(self.td_channels[0], 3, kernel_size=1, bias=False),
-                nn.Hardtanh(min_val=0.0, max_val=1.0))
-            # self.register_parameter(name='pr_prod', param=torch.nn.Parameter(
-            #     torch.tensor([1.0 / max(self.pr_layers)] * (1 + max(self.pr_layers)))))
+            self.img_decoder = Decoder(pr_layers, td_channels, 3, nn.Hardtanh(min_val=0.0, max_val=1.0))
 
         # Segmentation prediction (sg)
         if self.do_segmentation:
-            sg_upsp = []
-            for l in range(self.n_layers):
-                if 0 < l <= max(self.sg_layers):
-                    inn, out = self.td_channels[l], self.td_channels[l - 1]
-                    sg_upsp.append(nn.Sequential(
-                        nn.GroupNorm(inn, inn),
-                        nn.ConvTranspose2d(in_channels=inn, out_channels=out,
-                            kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-                        nn.ReLU()))  # [int(l == max(self.sg_layers)):])
-            self.sg_upsp = nn.ModuleList([None] + sg_upsp)  # None for indexing convenience
-            self.sg_conv = nn.Sequential(
-                nn.GroupNorm(self.td_channels[0], self.td_channels[0]),
-                nn.Conv2d(self.td_channels[0], self.n_classes, kernel_size=1, bias=False),
-                nn.Sigmoid())
-            # self.register_parameter(name='sg_prod', param=torch.nn.Parameter(
-            #     torch.tensor([1.0 / max(self.sg_layers)] * (1 + max(self.sg_layers)))))
+            self.seg_decoder = Decoder(sg_layers, td_channels, n_classes, nn.Sigmoid())
 
         # Put model on gpu
         self.to('cuda')
@@ -157,31 +127,21 @@ class PredNetVGG(nn.Module):
             E = self.E_state[l]
             if l != self.n_layers - 1:
                 E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-            E = self.td_attn_channel[l](E) * E
-            E = self.td_attn_spatial[l](E) * E
-            # E = self.td_attn[l](E) * E
+            # E = self.td_attn_channel[l](E) * E
+            # E = self.td_attn_spatial[l](E) * E
+            E = self.td_attn[l](E) * E
             R_pile[l] = self.td_conv[l](E, R)
             # R_pile[l] = self.td_conv[l](E)
 
         # Future frame prediction
         if self.do_prediction:
-            P = R_pile[max(self.pr_layers)]  # * self.pr_prod[-1]
-            P = self.pr_upsp[-1](P) if max(self.pr_layers) > 0 else self.pr_conv(P)
-            for l in reversed(range(max(self.pr_layers))):
-                if l in self.pr_layers:
-                    P = P + R_pile[l]  # * self.pr_prod[l]
-                P = self.pr_upsp[l](P) if l > 0 else self.pr_conv(P)
+            P = self.img_decoder(R_pile)
         else:
             P = torch.zeros(batch_dims).cuda()
 
         # Segmentation
         if self.do_segmentation:
-            S = R_pile[max(self.sg_layers)]  # * self.sg_prod[-1]
-            S = self.sg_upsp[-1](S) if max(self.sg_layers) > 0 else self.sg_conv(S)
-            for l in reversed(range(max(self.sg_layers))):
-                if l in self.sg_layers:
-                    S = S + R_pile[l]  # * self.sg_prod[l]
-                S = self.sg_upsp[l](S) if l > 0 else self.sg_conv(S)
+            S = self.seg_decoder(R_pile)
         else:
             S = torch.zeros((batch_size, self.n_classes) + batch_dims[2:]).cuda()
 
@@ -253,6 +213,39 @@ class PredNetVGG(nn.Module):
         return model, optimizer, scheduler, train_losses, valid_losses
 
 
+class Decoder(nn.Module):  # decode anything from the latent variables of PredNetVGG
+
+    def __init__(self, decoder_layers, input_channels, n_output_channels, output_fn):
+        super(Decoder, self).__init__()
+
+        self.decoder_layers = decoder_layers
+        decoder_upsp = []
+        for l in range(1, max(decoder_layers) + 1):
+            inn, out = input_channels[l], input_channels[l - 1]
+            decoder_upsp.append(nn.Sequential(
+                nn.GroupNorm(inn, inn),
+                nn.ConvTranspose2d(in_channels=inn, out_channels=out,
+                kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
+                nn.ReLU()))  # [int(l == max(decoder_layers)):])
+        self.decoder_upsp = nn.ModuleList([None] + decoder_upsp)  # None for indexing convenience
+        self.decoder_conv = nn.Sequential(
+            nn.GroupNorm(input_channels[0], input_channels[0]),
+            nn.Conv2d(input_channels[0], n_output_channels, kernel_size=1, bias=False),
+            nn.Sigmoid() if output_fn == 'sigmoid' else nn.Hardtanh(min_val=0.0, max_val=1.0))
+        # self.register_parameter(name='decoder_prod', param=torch.nn.Parameter(
+        #     torch.tensor([1.0 / max(decoder_layers)] * (1 + max(decoder_layers)))))
+  
+    def forward(self, R_pile):
+
+        D = R_pile[max(self.decoder_layers)]  # * self.decoder_prod[-1]
+        D = self.decoder_upsp[-1](D) if max(self.decoder_layers) > 0 else self.decoder_conv(D)
+        for l in reversed(range(max(self.decoder_layers))):
+            if l in self.decoder_layers:
+                D = D + R_pile[l]  # * self.decoder_prod[l]
+            D = self.decoder_upsp[l](D) if l > 0 else self.decoder_conv(D)
+        return D
+
+
 # Taken from: https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
 class ChannelAttention(nn.Module):
     def __init__(self, in_planes, ratio=16):
@@ -270,6 +263,7 @@ class ChannelAttention(nn.Module):
         max_out = self.fc(self.max_pool(x))
         out = avg_out + max_out
         return self.sigmoid(out)
+
 
 # Taken from: https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
 class SpatialAttention(nn.Module):
