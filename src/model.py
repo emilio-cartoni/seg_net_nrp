@@ -91,12 +91,12 @@ class PredNetVGG(nn.Module):
           pr_upsp.append(nn.Sequential(
             nn.GroupNorm(inn, inn),
             nn.ConvTranspose2d(in_channels=inn, out_channels=out,
-              kernel_size=3, stride=2, padding=1, output_padding=1),
+              kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
             nn.ReLU()))  # [int(l == max(self.pr_layers)):])
       self.pr_upsp = nn.ModuleList([None] + pr_upsp)  # None for indexing convenience
       self.pr_conv = nn.Sequential(
         nn.GroupNorm(self.td_channels[0], self.td_channels[0]),
-        nn.Conv2d(self.td_channels[0], 3, kernel_size=1),
+        nn.Conv2d(self.td_channels[0], 3, kernel_size=1, bias=False),
         nn.Hardtanh(min_val=0.0, max_val=1.0))
       self.register_parameter(name='pr_prod', param=torch.nn.Parameter(torch.tensor(
           [1.0 / max(self.pr_layers)] * (1 + max(self.pr_layers)))))
