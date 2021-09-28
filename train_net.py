@@ -8,13 +8,12 @@ from src.dataset_fn import get_datasets_seg
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 5, None
 name = 'Alban'
-do_train_vgg, do_untouched_bu = False, False
-do_time_aligned, do_bens_idea, do_saliency = True, False, False
-batch_size_train, batch_size_valid = 1, 5
-vgg_type, n_layers, t_start = 'vgg19', 4, 10
+do_time_aligned, do_train_vgg, do_untouched_bu = True, False, False
+batch_size_train, batch_size_valid = 1, 4
+vgg_type, n_layers, t_start = 'vgg19', 5, 10
 pr_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 sg_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
-td_channels = td_channels = (32, 64, 128, 256, 512) if do_bens_idea else (32, 64, 128, 256, 512)
+td_channels = td_channels = (64, 128, 256, 512, 512)
 td_channels = td_channels[:n_layers]
 learning_rate, dropout_rates = 1e-3, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers] # to try: increase by e1
 loss_w = {
@@ -24,10 +23,10 @@ loss_w = {
   'img_mse': 0.0 if len(pr_layers) > 0 else 0.0,
   'seg_bce': 0.0 if len(sg_layers) > 0 else 0.0,
   'seg_mse': 0.0 if len(sg_layers) > 0 else 0.0,
-  'seg_foc': 0.0 if len(sg_layers) > 0 else 0.0,
+  'seg_foc': 10.0 if len(sg_layers) > 0 else 0.0,
   'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
 model_name = f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
-           + f'_BI{int(do_bens_idea)}_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
+           + f'_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
            + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'\
            + f'_{name}'
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
@@ -50,8 +49,8 @@ if not load_model:
   print(f'\nCreating model: {model_name}')
   model = PredNetVGG(
     model_name, vgg_type, n_classes, n_layers, pr_layers, sg_layers,
-    td_channels, dropout_rates, do_time_aligned, do_untouched_bu, do_train_vgg,
-    do_bens_idea, do_saliency, do_prediction, do_segmentation)
+    td_channels, dropout_rates, do_time_aligned, do_untouched_bu,
+    do_train_vgg, do_prediction, do_segmentation)
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
   scheduler = torch.optim.lr_scheduler.MultiStepLR(
