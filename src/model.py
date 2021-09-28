@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import os
 from src.hgru_cell import hConvGRUCell
-# And attention module taken from:
-# https://github.com/openai/CLIP/blob/04f4dc2ca1ed0acc9893bd1a3b526a7e02c4bb10/clip/model.py#L56
+# And attention modules taken from:
+# https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
 
 vgg_indexes = {
     'vgg13': [(0, 4), (5, 9), (10, 14), (15, 19), (20, 24)],
@@ -74,15 +74,15 @@ class PredNetVGG(nn.Module):
         td_conv, td_attn, td_attn_channel, td_attn_spatial = [], [], [], []
         for l in range(self.n_layers):
             inn, out = self.bu_channels[l] + self.td_channels[l + 1], self.td_channels[l]
-            # td_attn_channel.append(ChannelAttention(inn))
-            # td_attn_spatial.append(SpatialAttention())
-            td_attn.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
+            td_attn_channel.append(ChannelAttention(inn))
+            td_attn_spatial.append(SpatialAttention())
+            # td_attn.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
             td_conv.append(hConvGRUCell(inn, out, kernel_size=3))
             # td_conv.append(nn.Conv2d(inn, out, kernel_size=3, padding=1))
         self.td_upsp = nn.Upsample(scale_factor=2)
-        self.td_attn = nn.ModuleList(td_attn)
-        # self.td_attn_channel = nn.ModuleList(td_attn_channel)
-        # self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
+        # self.td_attn = nn.ModuleList(td_attn)
+        self.td_attn_channel = nn.ModuleList(td_attn_channel)
+        self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
         self.td_conv = nn.ModuleList(td_conv)
 
         # Future frame prediction (pr)
@@ -94,15 +94,15 @@ class PredNetVGG(nn.Module):
                     pr_upsp.append(nn.Sequential(
                         nn.GroupNorm(inn, inn),
                         nn.ConvTranspose2d(in_channels=inn, out_channels=out,
-                            kernel_size=3, stride=2, padding=1, output_padding=1),
+                            kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
                         nn.ReLU()))  # [int(l == max(self.pr_layers)):])
             self.pr_upsp = nn.ModuleList([None] + pr_upsp)  # None for indexing convenience
             self.pr_conv = nn.Sequential(
                 nn.GroupNorm(self.td_channels[0], self.td_channels[0]),
-                nn.Conv2d(self.td_channels[0], 3, kernel_size=1),
+                nn.Conv2d(self.td_channels[0], 3, kernel_size=1, bias=False),
                 nn.Hardtanh(min_val=0.0, max_val=1.0))
-            self.register_parameter(name='pr_prod', param=torch.nn.Parameter(
-                torch.tensor([1.0 / max(self.pr_layers)] * (1 + max(self.pr_layers)))))
+            # self.register_parameter(name='pr_prod', param=torch.nn.Parameter(
+            #     torch.tensor([1.0 / max(self.pr_layers)] * (1 + max(self.pr_layers)))))
 
         # Segmentation prediction (sg)
         if self.do_segmentation:
@@ -113,15 +113,15 @@ class PredNetVGG(nn.Module):
                     sg_upsp.append(nn.Sequential(
                         nn.GroupNorm(inn, inn),
                         nn.ConvTranspose2d(in_channels=inn, out_channels=out,
-                            kernel_size=3, stride=2, padding=1, output_padding=1),
+                            kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
                         nn.ReLU()))  # [int(l == max(self.sg_layers)):])
             self.sg_upsp = nn.ModuleList([None] + sg_upsp)  # None for indexing convenience
             self.sg_conv = nn.Sequential(
                 nn.GroupNorm(self.td_channels[0], self.td_channels[0]),
-                nn.Conv2d(self.td_channels[0], self.n_classes, kernel_size=1),
+                nn.Conv2d(self.td_channels[0], self.n_classes, kernel_size=1, bias=False),
                 nn.Sigmoid())
-            self.register_parameter(name='sg_prod', param=torch.nn.Parameter(
-                torch.tensor([1.0 / max(self.sg_layers)] * (1 + max(self.sg_layers)))))
+            # self.register_parameter(name='sg_prod', param=torch.nn.Parameter(
+            #     torch.tensor([1.0 / max(self.sg_layers)] * (1 + max(self.sg_layers)))))
 
         # Put model on gpu
         self.to('cuda')
@@ -157,30 +157,30 @@ class PredNetVGG(nn.Module):
             E = self.E_state[l]
             if l != self.n_layers - 1:
                 E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-            # E = self.td_attn_channel[l](E) * E
-            # E = self.td_attn_spatial[l](E) * E
-            E = self.td_attn[l](E) * E
+            E = self.td_attn_channel[l](E) * E
+            E = self.td_attn_spatial[l](E) * E
+            # E = self.td_attn[l](E) * E
             R_pile[l] = self.td_conv[l](E, R)
             # R_pile[l] = self.td_conv[l](E)
 
         # Future frame prediction
         if self.do_prediction:
-            P = R_pile[max(self.pr_layers)] * self.pr_prod[-1]
+            P = R_pile[max(self.pr_layers)]  # * self.pr_prod[-1]
             P = self.pr_upsp[-1](P) if max(self.pr_layers) > 0 else self.pr_conv(P)
             for l in reversed(range(max(self.pr_layers))):
                 if l in self.pr_layers:
-                    P = P + R_pile[l] * self.pr_prod[l]
+                    P = P + R_pile[l]  # * self.pr_prod[l]
                 P = self.pr_upsp[l](P) if l > 0 else self.pr_conv(P)
         else:
             P = torch.zeros(batch_dims).cuda()
 
         # Segmentation
         if self.do_segmentation:
-            S = R_pile[max(self.sg_layers)] * self.sg_prod[-1]
+            S = R_pile[max(self.sg_layers)]  # * self.sg_prod[-1]
             S = self.sg_upsp[-1](S) if max(self.sg_layers) > 0 else self.sg_conv(S)
             for l in reversed(range(max(self.sg_layers))):
                 if l in self.sg_layers:
-                    S = S + R_pile[l] * self.sg_prod[l]
+                    S = S + R_pile[l]  # * self.sg_prod[l]
                 S = self.sg_upsp[l](S) if l > 0 else self.sg_conv(S)
         else:
             S = torch.zeros((batch_size, self.n_classes) + batch_dims[2:]).cuda()
@@ -251,44 +251,6 @@ class PredNetVGG(nn.Module):
         valid_losses = save['valid_losses']
         train_losses = save['train_losses']
         return model, optimizer, scheduler, train_losses, valid_losses
-
-
-# # Here is the attention module, taken from:
-# # https://github.com/openai/CLIP/blob/04f4dc2ca1ed0acc9893bd1a3b526a7e02c4bb10/clip/model.py#L56
-# class AttentionPool2d(nn.Module):
-#     def __init__(self, spatial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None):
-#         super().__init__()
-#         self.positional_embedding = nn.Parameter(torch.randn(spatial_dim ** 2 + 1, embed_dim) / embed_dim ** 0.5)
-#         self.k_proj = nn.Linear(embed_dim, embed_dim)
-#         self.q_proj = nn.Linear(embed_dim, embed_dim)
-#         self.v_proj = nn.Linear(embed_dim, embed_dim)
-#         self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim)
-#         self.num_heads = num_heads
-
-#     def forward(self, x):
-#         print(x.shape)
-#         x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(2, 0, 1)  # NCHW -> (HW)NC
-#         x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC
-#         x = x + self.positional_embedding[:, None, :].to(x.dtype)  # (HW+1)NC
-#         x, _ = F.multi_head_attention_forward(
-#             query=x, key=x, value=x,
-#             embed_dim_to_check=x.shape[-1],
-#             num_heads=self.num_heads,
-#             q_proj_weight=self.q_proj.weight,
-#             k_proj_weight=self.k_proj.weight,
-#             v_proj_weight=self.v_proj.weight,
-#             in_proj_weight=None,
-#             in_proj_bias=torch.cat([self.q_proj.bias, self.k_proj.bias, self.v_proj.bias]),
-#             bias_k=None,
-#             bias_v=None,
-#             add_zero_attn=False,
-#             dropout_p=0,
-#             out_proj_weight=self.c_proj.weight,
-#             out_proj_bias=self.c_proj.bias,
-#             use_separate_proj_weight=True,
-#             training=self.training,
-#             need_weights=False)
-#         return x[0]
 
 
 # Taken from: https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
