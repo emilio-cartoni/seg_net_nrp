@@ -70,20 +70,17 @@ class PredNetVGG(nn.Module):
     self.la_conv = nn.ModuleList(la_conv)
 
     # Top-down connections (td)
-    td_conv, td_norm, td_attn = [], [], []
-    spatial_dims = [256, 128, 64, 32, 16, 8, 4, 2, 1]
+    td_conv, td_attn_channel, td_attn_spatial = [], [], []
     for l in range(self.n_layers):
       inn, out = self.bu_channels[l] + self.td_channels[l + 1], self.td_channels[l]
-      # td_attn.append(AttentionPool2d(
-      #   spatial_dim=spatial_dims[l], embed_dim=inn, num_heads=4, output_dim=out))
-      td_attn.append(nn.Sequential(ChannelAttention(inn, out), SpatialAttention()))
+      td_attn_channel.append(ChannelAttention(inn, inn))
+      td_attn_spatial.append(SpatialAttention())
       td_conv.append(hConvGRUCell(inn, out, kernel_size=3))
       # td_conv.append(nn.Conv2d(inn, out, kernel_size=3, padding=1))
-      # td_norm.append(nn.GroupNorm(out, out))
     self.td_upsp = nn.Upsample(scale_factor=2)
-    self.td_attn = nn.ModuleList(td_attn)
+    self.td_attn_channel = nn.ModuleList(td_attn_channel)
+    self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
     self.td_conv = nn.ModuleList(td_conv)
-    # self.td_norm = nn.ModuleList(td_norm)
 
     # Future frame prediction (pr)
     if self.do_prediction:
@@ -139,15 +136,6 @@ class PredNetVGG(nn.Module):
         self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).cuda()
         h, w = h // 2, w // 2
       
-    # Top-down pass
-    for l in reversed(range(self.n_layers)):
-      R = self.R_state[l]
-      E = self.E_state[l]
-      if l != self.n_layers - 1:
-        E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-      E = self.td_attn[l](E)
-      R_pile[l] = self.td_norm[l](self.td_conv[l](E, R))
-
     # Bottom-up pass
     for l in range(self.n_layers):
       A = self.bu_drop[l](self.bu_conv[l](A))
@@ -166,12 +154,10 @@ class PredNetVGG(nn.Module):
       E = self.E_state[l]
       if l != self.n_layers - 1:
         E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-      # E = self.td_attn[l](E)
-      E = self.td_attn[l](E) * E
+      E = self.td_attn_channel[l](E) * E
+      E = self.td_attn_spatial[l](E) * E
       R_pile[l] = self.td_conv[l](E, R)
       # R_pile[l] = self.td_conv[l](E)
-      # R_pile[l] = self.td_norm[l](self.td_conv[l](E, R))
-      # R_pile[l] = self.td_norm[l](self.td_conv[l](E))
 
     # Future frame prediction
     if self.do_prediction:
@@ -208,7 +194,6 @@ class PredNetVGG(nn.Module):
     last_epoch = scheduler.last_epoch
     torch.save({
       'model_name': self.model_name,
-      'vgg_type': self.vgg_type,
       'n_classes': self.n_classes,
       'n_layers': self.n_layers,
       'pr_layers': self.pr_layers,
@@ -245,7 +230,6 @@ class PredNetVGG(nn.Module):
     save = torch.load(ckpt_dir + ckpt_path)
     model = cls(
       model_name=model_name,
-      vgg_type=save['vgg_type'],
       n_classes=save['n_classes'],
       n_layers=save['n_layers'],
       pr_layers=save['pr_layers'],
@@ -305,7 +289,7 @@ class PredNetVGG(nn.Module):
 
 # Taken from: https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
 class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, out_planes, ratio=16):
+    def __init__(self, in_planes, out_planes, ratio=16):  # MODIFIED  (added out_planes)
         super(ChannelAttention, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)

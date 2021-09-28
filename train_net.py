@@ -21,7 +21,7 @@ loss_w = {
   'img_bce': 0.0 if len(pr_layers) > 0 else 0.0,
   'img_mae': 10.0 if len(pr_layers) > 0 else 0.0,
   'img_mse': 0.0 if len(pr_layers) > 0 else 0.0,
-  'seg_bce': 0.0 if len(sg_layers) > 0 else 0.0,
+  'seg_bce': 10.0 if len(sg_layers) > 0 else 0.0,
   'seg_mse': 0.0 if len(sg_layers) > 0 else 0.0,
   'seg_foc': 10.0 if len(sg_layers) > 0 else 0.0,
   'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
@@ -34,8 +34,8 @@ do_prediction = not (len(pr_layers) == 0 or sum([loss_w['img_' + k] for k in ['b
 do_segmentation = not (len(sg_layers) == 0 or sum([loss_w['seg_' + k] for k in ['bce', 'mse', 'foc', 'dice']]) == 0)
 
 # Dataset
-dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM'
-# dataset_path = r'D:\DL\datasets\kitti\mots'
+# dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM'
+dataset_path = r'D:\DL\datasets\kitti\mots'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
 n_frames, n_backprop_frames = 100, 1
 augmentation, remove_ground = True, False
