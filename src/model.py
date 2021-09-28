@@ -138,6 +138,15 @@ class PredNetVGG(nn.Module):
         self.E_state[l] = torch.zeros(batch_size, self.bu_channels[l], h, w).cuda()
         self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).cuda()
         h, w = h // 2, w // 2
+      
+    # Top-down pass
+    for l in reversed(range(self.n_layers)):
+      R = self.R_state[l]
+      E = self.E_state[l]
+      if l != self.n_layers - 1:
+        E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
+      E = self.td_attn[l](E)
+      R_pile[l] = self.td_norm[l](self.td_conv[l](E, R))
 
     # Bottom-up pass
     for l in range(self.n_layers):

@@ -3,7 +3,7 @@ import numpy as np
 # import pytorch_lightning as pl
 from src.model import PredNetVGG
 from src.utils import train_fn, valid_fn
-from src.dataset_fn import get_datasets_seg
+from src.dataset_fn import get_datasets_seg, get_SQM_dataset
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 5, None
@@ -15,7 +15,7 @@ pr_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for
 sg_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 td_channels = td_channels = (64, 128, 256, 512, 512)
 td_channels = td_channels[:n_layers]
-learning_rate, dropout_rates = 1e-3, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers] # to try: increase by e1
+learning_rate, dropout_rates = 1e-3, (0, 0, 0, 0, 0)[:n_layers] # to try: increase by e1
 loss_w = {
   'latent': (1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
   'img_bce': 0.0 if len(pr_layers) > 0 else 0.0,
@@ -34,15 +34,16 @@ do_prediction = not (len(pr_layers) == 0 or sum([loss_w['img_' + k] for k in ['b
 do_segmentation = not (len(sg_layers) == 0 or sum([loss_w['seg_' + k] for k in ['bce', 'mse', 'foc', 'dice']]) == 0)
 
 # Dataset
-# dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\MOTS'
-dataset_path = r'D:\DL\datasets\kitti\mots'
+dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM'
+# dataset_path = r'D:\DL\datasets\kitti\mots'
 n_samples, tr_ratio = 1000, 0.80  # n_train(valid)_samples = ((1-)tr_ratio) * n_samples
 n_frames, n_backprop_frames = 100, 1
 augmentation, remove_ground = True, False
 n_classes = 3 if remove_ground else 4
 train_dl, valid_dl = get_datasets_seg(
-  dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
+dataset_path, tr_ratio, batch_size_train, batch_size_valid, n_frames,
   augmentation=augmentation, n_classes=n_classes, remove_ground=remove_ground)
+# valid_dl = get_SQM_dataset(dataset_path, n_classes, remove_ground)
 
 # Load the model
 if not load_model:
@@ -54,7 +55,7 @@ if not load_model:
   train_losses, valid_losses, last_epoch = [], [], 0
   optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
   scheduler = torch.optim.lr_scheduler.MultiStepLR(
-    optimizer, range(5, (n_epochs_run + 1) * 5, 5), gamma=0.5)
+    optimizer, range(10, (n_epochs_run + 1) * 10, 50), gamma=0.1)
   train_losses, valid_losses = [], []
 else:
   print(f'\nLoading model: {model_name}')

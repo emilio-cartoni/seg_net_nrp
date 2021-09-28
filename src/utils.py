@@ -37,7 +37,8 @@ def train_fn(
         loss = loss + loss_fn(
           A, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches)
         if (t - TA + 1) % n_backprop_frames == 0:
-          optimizer.zero_grad()
+          # equivalent to zero_grad(), but faster
+          for p in model.parameters(): p.grad = None
           loss.backward()
           nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
           optimizer.step()
