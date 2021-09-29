@@ -96,6 +96,7 @@ def loss_fn(frame, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batche
     # Latent variables prediction loss (unsupervised)
     zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
     latent_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_weight['latent'])])
+    # print([torch.sum(E[l].detach().cpu().item()) for l in range(len(E))])
     
     # Image prediction loss (unsupervised)
     img_bce_loss = bce_loss_fn(P, frame) * loss_weight['img_bce'] if loss_weight['img_bce'] else 0.0
@@ -164,3 +165,7 @@ def hsv_to_rgb(hue):
         [1, v, 0], [v, 1, 0], [0, 1, v],
         [0, v, 1], [v, 0, 1], [1, 0, v]]
     return hsv_space[int(hue * 6)]
+
+
+def transform_image_with_saccade(image, saccade_location):
+    pass

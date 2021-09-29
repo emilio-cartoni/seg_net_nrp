@@ -35,9 +35,9 @@ class Mots_Dataset(data.Dataset):
         A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
         """
         transformed_images = []
-        resize = IT.Resize(size=(128, 512), interpolation=IT.InterpolationMode.NEAREST)
+        resize = IT.Resize(size=(160, 512), interpolation=IT.InterpolationMode.NEAREST)
         normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        i, j, h, w = IT.RandomCrop.get_params(list_of_images[0][0], output_size=(256, 1024))
+        i, j, h, w = IT.RandomCrop.get_params(list_of_images[0][0], output_size=(320, 1024))
         for image, label in list_of_images:
             image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
             image, label = resize(image), resize(label)

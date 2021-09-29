@@ -1,8 +1,9 @@
-# Taken (+ modified) from: https://github.com/serre-lab/hgru-pytorch/blob/master/hgru.py
-# Paper: https://arxiv.org/abs/2010.15314
 import torch
 import torch.nn.functional as F
 from torch import nn
+
+# Taken (+ modified) from: https://github.com/serre-lab/hgru-pytorch/blob/master/hgru.py
+# Paper: https://arxiv.org/abs/2010.15314
 
 class hConvGRUCell(nn.Module):
 

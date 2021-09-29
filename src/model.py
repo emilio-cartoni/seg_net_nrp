@@ -4,7 +4,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import os
 from src.hgru_cell import hConvGRUCell
-# And attention modules taken from:
+
+# Attention modules taken from:
 # https://github.com/luuuyi/CBAM.PyTorch/blob/master/model/resnet_cbam.py
 
 vgg_indexes = {
@@ -26,14 +27,17 @@ class PredNetVGG(nn.Module):
 
         # Model parameters
         self.model_name = model_name
+        self.vgg_type = vgg_type
         self.n_classes = n_classes
         self.n_layers = n_layers
         self.pr_layers = pr_layers
         self.sg_layers = sg_layers
         self.bu_channels = [64, 128, 256, 512, 512][:n_layers]  # vgg channels
         self.td_channels = td_channels[:n_layers] + (0,)
+        self.dropout_rates = dropout_rates
         self.do_time_aligned = do_time_aligned
         self.do_untouched_bu = do_untouched_bu
+        self.do_train_vgg = do_train_vgg
         self.do_prediction = do_prediction
         self.do_segmentation = do_segmentation
 
@@ -71,27 +75,31 @@ class PredNetVGG(nn.Module):
         self.la_conv = nn.ModuleList(la_conv)
 
         # Top-down connections (td)
-        td_conv, td_attn, td_attn_channel, td_attn_spatial = [], [], [], []
+        td_conv, td_attn_layer, td_attn_channel, td_attn_spatial = [], [], [], []
         for l in range(self.n_layers):
             inn, out = self.bu_channels[l] + self.td_channels[l + 1], self.td_channels[l]
-            # td_attn_channel.append(ChannelAttention(inn))
-            # td_attn_spatial.append(SpatialAttention())
-            td_attn.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
+            td_attn_channel.append(ChannelAttention(inn))
+            td_attn_spatial.append(SpatialAttention())
+            td_attn_layer.append(nn.Sequential(ChannelAttention(inn), SpatialAttention()))
             td_conv.append(hConvGRUCell(inn, out, kernel_size=5))
             # td_conv.append(nn.Conv2d(inn, out, kernel_size=3, padding=1))
         self.td_upsp = nn.Upsample(scale_factor=2)
-        self.td_attn = nn.ModuleList(td_attn)
-        # self.td_attn_channel = nn.ModuleList(td_attn_channel)
-        # self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
+        self.td_attn_layer = nn.ModuleList(td_attn_layer)
+        self.td_attn_channel = nn.ModuleList(td_attn_channel)
+        self.td_attn_spatial = nn.ModuleList(td_attn_spatial)
         self.td_conv = nn.ModuleList(td_conv)
 
-        # Future frame prediction (pr)
+        # Future frame prediction
         if self.do_prediction:
             self.img_decoder = Decoder(pr_layers, td_channels, 3, nn.Hardtanh(min_val=0.0, max_val=1.0))
 
-        # Segmentation prediction (sg)
+        # Segmentation prediction
         if self.do_segmentation:
             self.seg_decoder = Decoder(sg_layers, td_channels, n_classes, nn.Sigmoid())
+
+        # # Saccade generation
+        # if self.do_saccades:
+        #     self.saccade_decoder = Decoder(saccade_layers, td_channels, 1, nn.Sigmoid())
 
         # Put model on gpu
         self.to('cuda')
@@ -127,9 +135,9 @@ class PredNetVGG(nn.Module):
             E = self.E_state[l]
             if l != self.n_layers - 1:
                 E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-            # E = self.td_attn_channel[l](E) * E
-            # E = self.td_attn_spatial[l](E) * E
-            E = self.td_attn[l](E) * E
+            # E = self.td_attn_layer[l](E) * E
+            E = self.td_attn_channel[l](E) * E
+            E = self.td_attn_spatial[l](E) * E
             R_pile[l] = self.td_conv[l](E, R)
             # R_pile[l] = self.td_conv[l](E)
 
@@ -144,6 +152,14 @@ class PredNetVGG(nn.Module):
             S = self.seg_decoder(R_pile)
         else:
             S = torch.zeros((batch_size, self.n_classes) + batch_dims[2:]).cuda()
+        
+        # # Saccades
+        # if self.do_saccades:
+        #     saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
+        #     saliency_argmax = torch.argmax(saliency_map)
+        #     saccade_row = saliency_argmax // saliency_map.shape[-2]
+        #     saccade_col = saliency_argmax % saliency_map.shape[-1]
+        #     saccade_location = (saccade_row, saccade_col)
 
         # Update the states of the network
         self.A_state = A_pile
@@ -151,20 +167,23 @@ class PredNetVGG(nn.Module):
         self.R_state = R_pile
 
         # Return the states to the computer
-        return E_pile, P, S
+        return E_pile, P, S  # , saccade_location
 
     def save_model(self, optimizer, scheduler, train_losses, valid_losses):
 
         last_epoch = scheduler.last_epoch
         torch.save({
             'model_name': self.model_name,
+            'vgg_type': self.vgg_type,
             'n_classes': self.n_classes,
             'n_layers': self.n_layers,
             'pr_layers': self.pr_layers,
             'sg_layers': self.sg_layers,
             'td_channels': self.td_channels,
+            'dropout_rates': self.dropout_rates,
             'do_time_aligned': self.do_time_aligned,
             'do_untouched_bu': self.do_untouched_bu,
+            'do_train_vgg': self.do_train_vgg,
             'do_prediction': self.do_prediction,
             'do_segmentation': self.do_segmentation,
             'model_params': self.state_dict(),
@@ -194,13 +213,16 @@ class PredNetVGG(nn.Module):
         save = torch.load(ckpt_dir + ckpt_path)
         model = cls(
             model_name=model_name,
+            vgg_type=save['vgg_type'],
             n_classes=save['n_classes'],
             n_layers=save['n_layers'],
             pr_layers=save['pr_layers'],
             sg_layers=save['sg_layers'],
             td_channels=save['td_channels'],
+            dropout_rates=save['dropout_rates'],
             do_time_aligned=save['do_time_aligned'],
             do_untouched_bu=save['do_untouched_bu'],
+            do_train_vgg=save['do_train_vgg'],
             do_prediction=save['do_prediction'],
             do_segmentation=save['do_segmentation'])
         model.load_state_dict(save['model_params'])
@@ -214,7 +236,6 @@ class PredNetVGG(nn.Module):
 
 
 class Decoder(nn.Module):  # decode anything from the latent variables of PredNetVGG
-
     def __init__(self, decoder_layers, input_channels, n_output_channels, output_fn):
         super(Decoder, self).__init__()
 

@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
-directory = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM\testing\0003'
+# directory = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM\testing\0003'
+directory = r'D:\DL\datasets\kitti\mots\sqm\testing\0000'
 image_size = (160, 512)
 n_channels = 3
 line_luminance = 255
