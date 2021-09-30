@@ -99,6 +99,9 @@ class PredNetVGG(nn.Module):
         if self.do_segmentation:
             self.seg_decoder = Decoder(sg_layers, td_channels, n_classes, nn.Sigmoid())
 
+        # TODO: # FOR NOW THESE WEIGHTS ARE ACTUALLY NOT TRAINED!!!!!
+        # SO THE SOLUTION IS TO MAKE A HIERARCHICAL DECISION BASED ON ALL SPATIAL ATTENTION LAYERS
+        # SPECIFICALLY THE HIGHEST LVL LAYER CONSTRAINS THE NEXT LAYER DOWN, ETC, UNTIL THE BOTTOM IS REACHED
         # Saccade generation
         if self.do_saccades:
             self.saccade_decoder = Decoder(saccade_layers, td_channels, 1, nn.Sigmoid())
@@ -137,11 +140,14 @@ class PredNetVGG(nn.Module):
             E = self.E_state[l]
             if l != self.n_layers - 1:
                 E = torch.cat((E, self.td_upsp(self.R_state[l + 1])), dim=1)
-            # E = self.td_attn_layer[l](E) * E
-            E = self.td_attn_channel[l](E) * E
-            E = self.td_attn_spatial[l](E) * E
+            # layer_attention = self.td_attn_layer[l](E)
+            channel_attention = self.td_attn_channel[l](E)
+            spatial_attention = self.td_attn_spatial[l](E)
+            # E = layer_attention * E
+            E = channel_attention * E
+            E = spatial_attention * E
             R_pile[l] = self.td_conv[l](E, R)
-            # R_pile[l] = self.td_conv[l](E)
+            # spatial_attention_pile.append(spatial_attention)
 
         # Future frame prediction
         if self.do_prediction:
@@ -157,6 +163,7 @@ class PredNetVGG(nn.Module):
         
         # Saccades
         if self.do_saccades:
+            # INSTEAD OF THIS, WE SHOULD USE SPATIAL_ATTENTION_PILE TO DECODE POSITION
             saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
             saliency_argmax = torch.argmax(saliency_map)
             saccade_row = saliency_argmax // saliency_map.shape[-1]

@@ -4,9 +4,9 @@ import random
 from src.model import PredNetVGG
 from src.utils import train_fn, valid_fn
 from src.dataset_fn import get_datasets_seg, get_SQM_dataset
-torch.manual_seed(42)
-random.seed(42)
-np.random.seed(42)
+# torch.manual_seed(42)
+# random.seed(42)
+# np.random.seed(42)
 
 # Parameters
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 5, None
