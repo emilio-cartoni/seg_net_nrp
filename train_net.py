@@ -21,14 +21,14 @@ td_channels = td_channels[:n_layers]
 learning_rate, dropout_rates = 1e-3, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers]
 lr_decay_time, lr_decay_rate = 1, 0.9
 loss_w = {
-    'latent': (1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
+    'latent': (1.0, 0.8, 0.6, 0.4, 0.2)[:n_layers],
     'img_bce': 0.0 if len(pr_layers) > 0 else 0.0,
-    'img_mae': 1.0 if len(pr_layers) > 0 else 0.0,
+    'img_mae': 10.0 if len(pr_layers) > 0 else 0.0,
     'img_mse': 0.0 if len(pr_layers) > 0 else 0.0,
-    'seg_bce': 10.0 if len(sg_layers) > 0 else 0.0,
+    'seg_bce': 0.0 if len(sg_layers) > 0 else 0.0,
     'seg_mse': 0.0 if len(sg_layers) > 0 else 0.0,
-    'seg_foc': 0.0 if len(sg_layers) > 0 else 0.0,
-    'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
+    'seg_foc': 1.0 if len(sg_layers) > 0 else 0.0,
+    'seg_dice': 1.0 if len(sg_layers) > 0 else 0.0}
 model_name = \
       f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
     + f'_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\

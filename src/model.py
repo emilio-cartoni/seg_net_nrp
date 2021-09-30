@@ -70,7 +70,7 @@ class PredNetVGG(nn.Module):
         for l in range(self.n_layers):
             inn, out = self.td_channels[l], self.bu_channels[l]
             la_conv.append(nn.Sequential(
-                nn.Conv2d(in_channels=inn, out_channels=out, kernel_size=5, padding=2),
+                nn.Conv2d(in_channels=inn, out_channels=out, kernel_size=1, padding=0),
                 nn.ReLU()))
         self.la_conv = nn.ModuleList(la_conv)
 
@@ -252,7 +252,7 @@ class Decoder(nn.Module):  # decode anything from the latent variables of PredNe
         self.decoder_conv = nn.Sequential(
             nn.GroupNorm(input_channels[0], input_channels[0]),
             nn.Conv2d(input_channels[0], n_output_channels, kernel_size=1, bias=False),
-            nn.Sigmoid() if output_fn == 'sigmoid' else nn.Hardtanh(min_val=0.0, max_val=1.0))
+            output_fn)
         # self.register_parameter(name='decoder_prod', param=torch.nn.Parameter(
         #     torch.tensor([1.0 / max(decoder_layers)] * (1 + max(decoder_layers)))))
   
