@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import imageio
+import skimage.transform
 
 from src.dataset_fn import DATASET_MEAN, DATASET_STD
 DATASET_MEAN = np.array(DATASET_MEAN)[None, :, None, None, None]
@@ -24,13 +25,18 @@ def train_fn(
     with torch.autograd.set_detect_anomaly(True):
         for batch_idx, (batch, sg_lbl) in enumerate(train_dl):
             batch_loss_train = 0.0
-            P_seq, S_seq = [], []
+            A_seq, P_seq, S_seq = [], [], []
             n_frames = batch.shape[-1]
+            saccade_location = batch.shape[2] // 2, batch.shape[3] // 2
             loss = 0.0
             for t in range(TA, TA + n_frames):
                 A = batch[..., t - TA].to(device='cuda')
+                A = batch[..., t - TA]
+                A = transform_image_with_saccade(A, saccade_location)
+                A = A.to(device='cuda')
                 S_lbl = sg_lbl[..., t - TA].to(device='cuda')
-                E, P, S = model(A, t - TA)
+                E, P, S, saccade_location = model(A, t - TA)
+                A_seq.append(A)
                 P_seq.append(P)
                 S_seq.append(S)
                 time_weight = float(t >= t_start)
@@ -48,9 +54,10 @@ def train_fn(
                     loss = 0.0
             plot_loss_train += batch_loss_train / n_batches
             if batch_idx == 0 and plot_gif:
+                A_seq = torch.stack(A_seq, axis=-1)
                 P_seq = torch.stack(P_seq, axis=-1)
                 S_seq = torch.stack(S_seq, axis=-1)
-                plot_recons(batch, sg_lbl, P_seq, S_seq, epoch=epoch,
+                plot_recons(A_seq, sg_lbl, P_seq, S_seq, epoch=epoch,
                     output_dir=f'./ckpt/{model.model_name}/')
   
     print(f'\r\nEpoch train loss : {plot_loss_train}')
@@ -66,12 +73,17 @@ def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
     with torch.no_grad():
         for batch_idx, (batch, sg_lbl) in enumerate(valid_dl):
             batch_loss_valid = 0.0
-            P_seq, S_seq = [], []
+            A_seq, P_seq, S_seq = [], [], []
             n_frames = batch.shape[-1]
+            saccade_location = batch.shape[2] // 2, batch.shape[3] // 2
             for t in range(TA, TA + n_frames):
-                A = batch[..., t - TA].to(device='cuda')
+                # A = batch[..., t - TA].to(device='cuda')
+                A = batch[..., t - TA]
+                A = transform_image_with_saccade(A, saccade_location)
+                A = A.to(device='cuda')
                 S_lbl = sg_lbl[..., t - TA].to(device='cuda')
                 E, P, S = model(A, t - TA)
+                A_seq.append(A)
                 P_seq.append(P)
                 S_seq.append(S)
                 time_weight = float(t >= t_start)
@@ -80,10 +92,11 @@ def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
                 batch_loss_valid += loss.item() / n_frames
             plot_loss_valid += batch_loss_valid / n_batches
             if batch_idx == 0 and plot_gif:
+                A_seq = torch.stack(A_seq, axis=-1)
                 P_seq = torch.stack(P_seq, axis=-1)
                 S_seq = torch.stack(S_seq, axis=-1)
                 plot_recons(
-                    batch, sg_lbl, P_seq, S_seq, epoch=epoch,
+                    A_seq, sg_lbl, P_seq, S_seq, epoch=epoch,
                     output_dir=f'./ckpt/{model.model_name}/',
                     mode='test' if epoch == -1 else 'valid')
 
@@ -168,4 +181,35 @@ def hsv_to_rgb(hue):
 
 
 def transform_image_with_saccade(image, saccade_location):
-    pass
+    saccade_location = (saccade_location[1], saccade_location[0])
+    g0 = image.numpy().squeeze().transpose(1, 2, 0)
+    n_rows, n_cols = g0.shape[0], g0.shape[1]
+    radius = (n_cols ** 2 + n_rows ** 2) ** 0.5
+    map_args = {
+        'k_angle': n_rows / (2 * np.pi),
+        'k_radius': n_cols / np.log(radius),
+        'center': saccade_location}
+    import matplotlib.pyplot as plt
+    g1 = skimage.transform.warp_polar(np.swapaxes(g0, 1, 0),
+                                      center=saccade_location,
+                                      radius=radius,
+                                      output_shape=(n_rows, n_cols),
+                                      scaling='log',
+                                      multichannel=True)
+    g2 = skimage.transform.warp(g1,
+                                log_polar_mapping,
+                                map_args=map_args,
+                                order=None,
+                                clip=True,
+                                preserve_range=False)
+    g2 = g2.transpose(2, 0, 1)
+    return torch.tensor(np.expand_dims(g2.squeeze(), axis=0))
+
+
+def log_polar_mapping(output_coords, k_angle, k_radius, center):
+    zz = (output_coords[:, 1] - center[1]) + 1j * (output_coords[:, 0] - center[0])
+    log_zz = np.log(zz)
+    rho = np.real(log_zz) * k_radius
+    theta = (np.imag(log_zz) % (2 * np.pi)) * k_angle
+    coords = np.column_stack((rho, theta))
+    return coords

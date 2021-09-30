@@ -20,9 +20,9 @@ vgg_indexes = {
 class PredNetVGG(nn.Module):
     def __init__(
         self, model_name, vgg_type, n_classes, n_layers,
-        pr_layers, sg_layers, td_channels, dropout_rates,
+        pr_layers, sg_layers, saccade_layers, td_channels, dropout_rates,
         do_time_aligned, do_untouched_bu, do_train_vgg,
-        do_prediction, do_segmentation) -> None:
+        do_prediction, do_segmentation, do_saccades) -> None:
         super(PredNetVGG, self).__init__()
 
         # Model parameters
@@ -32,6 +32,7 @@ class PredNetVGG(nn.Module):
         self.n_layers = n_layers
         self.pr_layers = pr_layers
         self.sg_layers = sg_layers
+        self.saccade_layers = saccade_layers
         self.bu_channels = [64, 128, 256, 512, 512][:n_layers]  # vgg channels
         self.td_channels = td_channels[:n_layers] + (0,)
         self.dropout_rates = dropout_rates
@@ -40,6 +41,7 @@ class PredNetVGG(nn.Module):
         self.do_train_vgg = do_train_vgg
         self.do_prediction = do_prediction
         self.do_segmentation = do_segmentation
+        self.do_saccades = do_saccades
 
         # Model directory
         model_path = f'./ckpt/{model_name}/'
@@ -97,9 +99,9 @@ class PredNetVGG(nn.Module):
         if self.do_segmentation:
             self.seg_decoder = Decoder(sg_layers, td_channels, n_classes, nn.Sigmoid())
 
-        # # Saccade generation
-        # if self.do_saccades:
-        #     self.saccade_decoder = Decoder(saccade_layers, td_channels, 1, nn.Sigmoid())
+        # Saccade generation
+        if self.do_saccades:
+            self.saccade_decoder = Decoder(saccade_layers, td_channels, 1, nn.Sigmoid())
 
         # Put model on gpu
         self.to('cuda')
@@ -153,13 +155,15 @@ class PredNetVGG(nn.Module):
         else:
             S = torch.zeros((batch_size, self.n_classes) + batch_dims[2:]).cuda()
         
-        # # Saccades
-        # if self.do_saccades:
-        #     saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
-        #     saliency_argmax = torch.argmax(saliency_map)
-        #     saccade_row = saliency_argmax // saliency_map.shape[-2]
-        #     saccade_col = saliency_argmax % saliency_map.shape[-1]
-        #     saccade_location = (saccade_row, saccade_col)
+        # Saccades
+        if self.do_saccades:
+            saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
+            saliency_argmax = torch.argmax(saliency_map)
+            saccade_row = saliency_argmax // saliency_map.shape[-1]
+            saccade_col = saliency_argmax % saliency_map.shape[-2]
+            saccade_row = saccade_row.cpu().item()
+            saccade_col = saccade_col.cpu().item()
+            saccade_location = (saccade_row, saccade_col)
 
         # Update the states of the network
         self.A_state = A_pile
@@ -167,7 +171,7 @@ class PredNetVGG(nn.Module):
         self.R_state = R_pile
 
         # Return the states to the computer
-        return E_pile, P, S  # , saccade_location
+        return E_pile, P, S, saccade_location
 
     def save_model(self, optimizer, scheduler, train_losses, valid_losses):
 
@@ -179,6 +183,7 @@ class PredNetVGG(nn.Module):
             'n_layers': self.n_layers,
             'pr_layers': self.pr_layers,
             'sg_layers': self.sg_layers,
+            'saccade_layers': self.saccade_layers,
             'td_channels': self.td_channels,
             'dropout_rates': self.dropout_rates,
             'do_time_aligned': self.do_time_aligned,
@@ -186,6 +191,7 @@ class PredNetVGG(nn.Module):
             'do_train_vgg': self.do_train_vgg,
             'do_prediction': self.do_prediction,
             'do_segmentation': self.do_segmentation,
+            'do_saccades': self.do_saccades,
             'model_params': self.state_dict(),
             'optimizer': optimizer,
             'scheduler': scheduler,
@@ -218,13 +224,15 @@ class PredNetVGG(nn.Module):
             n_layers=save['n_layers'],
             pr_layers=save['pr_layers'],
             sg_layers=save['sg_layers'],
+            saccade_layers=save['saccade_layers'],
             td_channels=save['td_channels'],
             dropout_rates=save['dropout_rates'],
             do_time_aligned=save['do_time_aligned'],
             do_untouched_bu=save['do_untouched_bu'],
             do_train_vgg=save['do_train_vgg'],
             do_prediction=save['do_prediction'],
-            do_segmentation=save['do_segmentation'])
+            do_segmentation=save['do_segmentation'],
+            do_saccades=save['do_saccades'])
         model.load_state_dict(save['model_params'])
         optimizer = save['optimizer']
         scheduler = save['scheduler']

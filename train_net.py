@@ -15,20 +15,21 @@ do_time_aligned, do_train_vgg, do_untouched_bu = True, False, False
 batch_size_train, batch_size_valid = 1, 4
 vgg_type, n_layers, t_start = 'vgg19', 5, 10
 pr_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
-sg_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
+sg_layers = tuple([l for l in [] if l < n_layers])  # set as [] for not doing it
+saccade_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 td_channels = td_channels = (64, 128, 256, 512, 512)
 td_channels = td_channels[:n_layers]
 learning_rate, dropout_rates = 1e-3, (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers]
 lr_decay_time, lr_decay_rate = 1, 0.9
 loss_w = {
-    'latent': (1.0, 0.8, 0.6, 0.4, 0.2)[:n_layers],
+    'latent': (1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
     'img_bce': 0.0 if len(pr_layers) > 0 else 0.0,
     'img_mae': 10.0 if len(pr_layers) > 0 else 0.0,
     'img_mse': 0.0 if len(pr_layers) > 0 else 0.0,
     'seg_bce': 0.0 if len(sg_layers) > 0 else 0.0,
     'seg_mse': 0.0 if len(sg_layers) > 0 else 0.0,
-    'seg_foc': 1.0 if len(sg_layers) > 0 else 0.0,
-    'seg_dice': 1.0 if len(sg_layers) > 0 else 0.0}
+    'seg_foc': 0.0 if len(sg_layers) > 0 else 0.0,
+    'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
 model_name = \
       f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
     + f'_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
@@ -37,6 +38,7 @@ model_name = \
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 do_prediction = not (len(pr_layers) == 0 or sum([loss_w['img_' + k] for k in ['bce', 'mae', 'mse']]) == 0)
 do_segmentation = not (len(sg_layers) == 0 or sum([loss_w['seg_' + k] for k in ['bce', 'mse', 'foc', 'dice']]) == 0)
+do_saccades = (len(saccade_layers) > 0)
 
 # Dataset
 # dataset_path = r'C:\Users\loennqvi\Github\seg_net_vgg\data\SQM'
@@ -56,8 +58,8 @@ if not load_model:
     print(f'\nCreating model: {model_name}')
     model = PredNetVGG(
         model_name, vgg_type, n_classes, n_layers, pr_layers, sg_layers,
-        td_channels, dropout_rates, do_time_aligned, do_untouched_bu,
-        do_train_vgg, do_prediction, do_segmentation)
+        saccade_layers, td_channels, dropout_rates, do_time_aligned,
+        do_untouched_bu, do_train_vgg, do_prediction, do_segmentation, do_saccades)
     train_losses, valid_losses, last_epoch = [], [], 0
     optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
