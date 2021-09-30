@@ -166,8 +166,8 @@ class PredNetVGG(nn.Module):
             # INSTEAD OF THIS, WE SHOULD USE SPATIAL_ATTENTION_PILE TO DECODE POSITION
             saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
             saliency_argmax = torch.argmax(saliency_map)
-            saccade_row = saliency_argmax // saliency_map.shape[-1]
-            saccade_col = saliency_argmax % saliency_map.shape[-2]
+            saccade_row = saliency_argmax // saliency_map.shape[-2]
+            saccade_col = saliency_argmax % saliency_map.shape[-1]
             saccade_row = saccade_row.cpu().item()
             saccade_col = saccade_col.cpu().item()
             saccade_location = (saccade_row, saccade_col)
