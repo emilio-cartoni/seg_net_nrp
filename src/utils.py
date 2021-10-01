@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-import numpy as np
 import imageio
 import skimage.transform
+import numpy as np
+np.seterr(divide = 'ignore') 
 
 from src.dataset_fn import DATASET_MEAN, DATASET_STD
 DATASET_MEAN = np.array(DATASET_MEAN)[None, :, None, None, None]
@@ -193,18 +194,11 @@ def warp_image(image, saccade_location):
         'k_angle': n_rows / (2 * np.pi),
         'k_radius': n_cols / np.log(radius),
         'center': saccade_location}
-    g1 = skimage.transform.warp_polar(np.swapaxes(g0, 1, 0),
-                                      center=saccade_location,
-                                      radius=radius,
-                                      output_shape=(n_rows, n_cols),
-                                      scaling='log',
-                                      multichannel=True)
-    g2 = skimage.transform.warp(g1,
-                                log_polar_mapping,
-                                map_args=map_args,
-                                order=None,
-                                clip=True,
-                                preserve_range=False)
+    g1 = skimage.transform.warp_polar(
+        np.swapaxes(g0, 1, 0), center=saccade_location, radius=radius,
+        output_shape=(n_rows, n_cols), scaling='log', multichannel=True)
+    g2 = skimage.transform.warp(g1, log_polar_mapping, map_args=map_args)
+    g2[g2==0] = g0[g2==0]  # TODO: THINK ABOUT THIS
     return torch.tensor(np.expand_dims(g2.transpose(2, 0, 1), axis=0))
 
 
