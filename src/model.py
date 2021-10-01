@@ -162,15 +162,14 @@ class PredNetVGG(nn.Module):
             S = torch.zeros((batch_size, self.n_classes) + batch_dims[2:]).cuda()
         
         # Saccades
+        saccade_loc = None
         if self.do_saccades:
             # INSTEAD OF THIS, WE SHOULD USE SPATIAL_ATTENTION_PILE TO DECODE POSITION
             saliency_map = self.saccade_decoder(R_pile)  # (b, c, h, w)
             saliency_argmax = torch.argmax(saliency_map)
             saccade_row = saliency_argmax // saliency_map.shape[-1]
             saccade_col = saliency_argmax % saliency_map.shape[-1]
-            saccade_row = saccade_row.cpu().item()
-            saccade_col = saccade_col.cpu().item()
-            saccade_location = (saccade_row, saccade_col)
+            saccade_loc = (saccade_row.cpu().item(), saccade_col.cpu().item())
 
         # Update the states of the network
         self.A_state = A_pile
@@ -178,7 +177,7 @@ class PredNetVGG(nn.Module):
         self.R_state = R_pile
 
         # Return the states to the computer
-        return E_pile, P, S, saccade_location
+        return E_pile, P, S, saccade_loc
 
     def save_model(self, optimizer, scheduler, train_losses, valid_losses):
 

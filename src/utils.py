@@ -27,16 +27,15 @@ def train_fn(
             batch_loss_train = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
             n_frames = batch.shape[-1]
-            saccade_location = batch.shape[2] // 2, batch.shape[3] // 2
+            saccade_loc = batch.shape[2] // 2, batch.shape[3] // 2
             loss = 0.0
             for t in range(TA, TA + n_frames):
-                # A = batch[..., t - TA].to(device='cuda')
                 input_ = batch[..., t - TA]
-                A = transform_image_with_saccade(input_, saccade_location)
+                A = warp_image(input_, saccade_loc) if model.do_saccades else input_
                 input_ = input_.to(device='cuda')
                 A = A.to(device='cuda')
                 S_lbl = sg_lbl[..., t - TA].to(device='cuda')
-                E, P, S, saccade_location = model(A, t - TA)
+                E, P, S, saccade_loc = model(A, t - TA)
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
@@ -78,14 +77,14 @@ def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
             batch_loss_valid = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
             n_frames = batch.shape[-1]
-            saccade_location = batch.shape[2] // 2, batch.shape[3] // 2
+            saccade_loc = batch.shape[2] // 2, batch.shape[3] // 2
             for t in range(TA, TA + n_frames):
                 input_ = batch[..., t - TA]
-                A = transform_image_with_saccade(input_, saccade_location)
+                A = warp_image(input_, saccade_loc) if model.do_saccades else input_
                 input_ = input_.to(device='cuda')
                 A = A.to(device='cuda')
                 S_lbl = sg_lbl[..., t - TA].to(device='cuda')
-                E, P, S, saccade_location = model(A, t - TA)
+                E, P, S, saccade_loc = model(A, t - TA)
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
@@ -185,7 +184,7 @@ def hsv_to_rgb(hue):
     return hsv_space[int(hue * 6)]
 
 
-def transform_image_with_saccade(image, saccade_location):
+def warp_image(image, saccade_location):
     saccade_location = (saccade_location[1], saccade_location[0])
     g0 = image.numpy().squeeze().transpose(1, 2, 0)
     n_rows, n_cols = g0.shape[0], g0.shape[1]
@@ -194,7 +193,6 @@ def transform_image_with_saccade(image, saccade_location):
         'k_angle': n_rows / (2 * np.pi),
         'k_radius': n_cols / np.log(radius),
         'center': saccade_location}
-    import matplotlib.pyplot as plt
     g1 = skimage.transform.warp_polar(np.swapaxes(g0, 1, 0),
                                       center=saccade_location,
                                       radius=radius,

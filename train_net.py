@@ -12,7 +12,7 @@ from src.dataset_fn import get_datasets_seg, get_SQM_dataset
 load_model, n_epochs_run, n_epoch_save, epoch_to_load = False, 1000, 5, None
 name = 'Alban'
 do_time_aligned, do_train_vgg, do_untouched_bu = True, False, False
-batch_size_train, batch_size_valid = 1, 4
+batch_size_train, batch_size_valid = 1, 1
 vgg_type, n_layers, t_start = 'vgg19', 5, 10
 pr_layers = tuple([l for l in [0, 1, 2, 3, 4] if l < n_layers])  # set as [] for not doing it
 sg_layers = tuple([l for l in [] if l < n_layers])  # set as [] for not doing it
@@ -32,9 +32,8 @@ loss_w = {
     'seg_dice': 0.0 if len(sg_layers) > 0 else 0.0}
 model_name = \
       f'{vgg_type}_TA{int(do_time_aligned)}_BU{int(do_untouched_bu)}'\
-    + f'_TD{td_channels}_PR{pr_layers}_SG{sg_layers}'\
-    + f'_DR{tuple([int(10 * r) for r in dropout_rates])}'\
-    + f'_{name}'
+    + f'_TD{td_channels}_PR{pr_layers}_SG{sg_layers}_SA{saccade_layers}'\
+    + f'_DR{tuple([int(10 * r) for r in dropout_rates])}_{name}'
 model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
 do_prediction = not (len(pr_layers) == 0 or sum([loss_w['img_' + k] for k in ['bce', 'mae', 'mse']]) == 0)
 do_segmentation = not (len(sg_layers) == 0 or sum([loss_w['seg_' + k] for k in ['bce', 'mse', 'foc', 'dice']]) == 0)
