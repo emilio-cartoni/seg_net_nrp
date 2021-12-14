@@ -4,11 +4,8 @@ import torch.nn.functional as F
 import torch.cuda.amp as amp
 from math import exp
 
-# Dice and focal losses taken from:
+# Dice and focal losses taken from (and slightly modified):
 # https://github.com/CoinCheung/pytorch-loss/blob/master/focal_loss.py
-# SSIM and MS-SSIM losses taken from:
-# https://github.com/jorge-pessoa/pytorch-msssim/blob/master/pytorch_msssim/
-
 
 # Generalized soft dice loss
 class DiceLoss(nn.Module):
@@ -17,21 +14,20 @@ class DiceLoss(nn.Module):
         self.p = p
         self.smooth = smooth
         self.reduction = reduction
-        self.weight = None if weight is None else torch.tensor(weight)
+        self.weight = None if weight is None else torch.tensor(weight).cuda()
 
-    def forward(self, logits, label):
+    def forward(self, probs, label):
         '''
-        args: logits: tensor of shape (N, C, H, W)
+        args: probs: tensor of shape (N, C, H, W)
         args: label: tensor of shape(N, C, H, W)
-        '''      
-        probs = torch.sigmoid(logits)
+        '''
         numer = torch.sum((probs * label), dim=(2, 3))
         denom = torch.sum(probs.pow(self.p) + label.pow(self.p), dim=(2, 3))
         if not self.weight is None:
             numer = numer * self.weight.view(1, -1)
             denom = denom * self.weight.view(1, -1)
-        numer = torch.sum(numer, dim=1)
-        denom = torch.sum(denom, dim=1)
+        # numer = torch.sum(numer, dim=1)
+        # denom = torch.sum(denom, dim=1)
         loss = 1 - (2 * numer + self.smooth)/(denom + self.smooth)
         if self.reduction == 'mean':
             loss = loss.mean()

@@ -1,168 +1,170 @@
+from numpy.core.arrayprint import set_string_function
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import imageio
-import skimage.transform
 import numpy as np
-np.seterr(divide = 'ignore') 
-
-from src.dataset_fn import DATASET_MEAN, DATASET_STD
-DATASET_MEAN = np.array(DATASET_MEAN)[None, :, None, None, None]
-DATASET_STD = np.array(DATASET_STD)[None, :, None, None, None]
-
 from src.loss_fn import FocalLoss, DiceLoss
 bce_loss_fn = nn.BCEWithLogitsLoss()
 mse_loss_fn = nn.MSELoss()
 mae_loss_fn = nn.L1Loss()
 foc_loss_fn = FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')
-dice_loss_fn = DiceLoss()
+# dic_loss_fn = DiceLoss(weight=[0.5, 1.0, 5.0, 1.0])
+# dic_loss_fn = DiceLoss(weight=[1.0, 5.0, 1.0])
+dic_loss_fn = DiceLoss(weight=[10.0, 40.0, 70.0, 1.0])  # for handover dataset including the torso
+# dic_loss_fn = DiceLoss()
 
 def train_fn(
     train_dl, model, optimizer, loss_weight, t_start, n_backprop_frames, epoch, plot_gif=True):
 
+    # Select which sub-network to train
+    this_loss_weight = {key: value for key, value in loss_weight.items()}  # dict(loss_weight)
+    if 0:
+        seg_only = ((epoch % 2) != 0)
+        for p in model.parameters():
+            p.requires_grad = (not seg_only)
+        for p in model.seg_decoder.parameters():
+            p.requires_grad = seg_only
+        for k in this_loss_weight.keys():
+            if ('seg' in k) == (not seg_only):
+                this_loss_weight[k] = [0.0 for _ in this_loss_weight[k]] if type(this_loss_weight[k]) is tuple else 0.0
+    
+    # Train the network for one epoch
     model.train()
-    plot_loss_train = 0.0
+    plot_loss_train = []  # 0.0
     n_batches = len(train_dl)
-    TA = model.do_time_aligned
+    TA = True  # model.do_time_aligned
     with torch.autograd.set_detect_anomaly(True):
-        for batch_idx, (batch, sg_lbl) in enumerate(train_dl):
+        for batch_idx, (images, S_lbls) in enumerate(train_dl):
             batch_loss_train = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
-            n_frames = batch.shape[-1]
-            saccade_loc = batch.shape[2] // 2, batch.shape[3] // 2
+            n_frames = images.shape[-1]
             loss = 0.0
             for t in range(TA, TA + n_frames):
-                input_ = batch[..., t - TA]
-                A = warp_image(input_, saccade_loc) if model.do_saccades else input_
-                input_ = input_.to(device='cuda')
-                A = A.to(device='cuda')
-                S_lbl = sg_lbl[..., t - TA].to(device='cuda')
-                E, P, S, saccade_loc = model(A, t - TA)
+                A = images[..., t - TA].to(device='cuda')
+                S_lbl = S_lbls[..., t - TA].to(device='cuda')               
+                E, P, S = model(A, t - TA)
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
                 S_lbl_seq.append(S_lbl.detach().cpu())
                 time_weight = float(t >= t_start)
                 loss = loss + loss_fn(
-                    input_, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches)
+                    E, A, P, S, S_lbl, time_weight, this_loss_weight, batch_idx, n_batches)
                 if (t - TA + 1) % n_backprop_frames == 0:
                     for p in model.parameters(): p.grad = None  # equivalent to zero_grad(), but faster
                     loss.backward()
                     nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
                     optimizer.step()
-                    model.A_state = [s.detach() for s in model.A_state]
-                    model.E_state = [s.detach() for s in model.E_state]
-                    model.R_state = [s.detach() for s in model.R_state]
+                    model.E_state = [s.detach() if s is not None else s for s in model.E_state]
+                    model.R_state = [s.detach() if s is not None else s for s in model.R_state]
+                    model.I1_state = [s.detach() if s is not None else s for s in model.I1_state]
+                    model.I2_state = [s.detach() if s is not None else s for s in model.I2_state]
                     batch_loss_train += loss.detach().item() / n_frames
                     loss = 0.0
-            plot_loss_train += batch_loss_train / n_batches
-            if batch_idx == 0 and plot_gif:
+            plot_loss_train.append(batch_loss_train)  # += batch_loss_train / n_batches
+            if ((epoch == 0 and (batch_idx % 100) == 0) or (batch_idx == 0)) and plot_gif:
                 A_seq = torch.stack(A_seq, axis=-1)
                 P_seq = torch.stack(P_seq, axis=-1)
                 S_seq = torch.stack(S_seq, axis=-1)
                 S_lbl_seq = torch.stack(S_lbl_seq, axis=-1)
-                plot_recons(A_seq, S_lbl_seq, P_seq, S_seq, epoch=epoch,
+                plot_recons(A_seq, S_lbl_seq, P_seq, S_seq,
+                    epoch=epoch, batch_idx=batch_idx,
                     output_dir=f'./ckpt/{model.model_name}/')
-  
-    print(f'\r\nEpoch train loss : {plot_loss_train}')
+                
+    print(f'\r\nEpoch train loss : {sum(plot_loss_train) / len(plot_loss_train)}')
     return plot_loss_train
 
 
 def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
 
     model.eval()
-    plot_loss_valid = 0.0
+    plot_loss_valid = []  # 0.0
     n_batches = len(valid_dl)
-    TA = model.do_time_aligned
+    TA = True  # model.do_time_aligned
     with torch.no_grad():
-        for batch_idx, (batch, sg_lbl) in enumerate(valid_dl):
+        for batch_idx, (images, S_lbls) in enumerate(valid_dl):
             batch_loss_valid = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
-            n_frames = batch.shape[-1]
-            saccade_loc = batch.shape[2] // 2, batch.shape[3] // 2
+            n_frames = images.shape[-1]
             for t in range(TA, TA + n_frames):
-                input_ = batch[..., t - TA]
-                A = warp_image(input_, saccade_loc) if model.do_saccades else input_
-                input_ = input_.to(device='cuda')
-                A = A.to(device='cuda')
-                S_lbl = sg_lbl[..., t - TA].to(device='cuda')
-                E, P, S, saccade_loc = model(A, t - TA)
+                A = images[..., t - TA].to(device='cuda')
+                S_lbl = S_lbls[..., t - TA].to(device='cuda')
+                E, P, S = model(A, t - TA)                
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
                 S_lbl_seq.append(S_lbl.detach().cpu())
                 time_weight = float(t >= t_start)
                 loss = loss_fn(
-                    input_, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches)
+                    E, A, P, S, S_lbl, time_weight, loss_weight, batch_idx, n_batches)
                 batch_loss_valid += loss.item() / n_frames
-            plot_loss_valid += batch_loss_valid / n_batches
-            if batch_idx == 0 and plot_gif:
+            plot_loss_valid.append(batch_loss_valid)  # += batch_loss_valid / n_batches
+            if ((epoch == 0 and (batch_idx % 10) == 0) or (batch_idx == 0)) and plot_gif:
                 A_seq = torch.stack(A_seq, axis=-1)
                 P_seq = torch.stack(P_seq, axis=-1)
                 S_seq = torch.stack(S_seq, axis=-1)
                 S_lbl_seq = torch.stack(S_lbl_seq, axis=-1)
                 plot_recons(
-                    A_seq, S_lbl_seq, P_seq, S_seq, epoch=epoch,
+                    A_seq, S_lbl_seq, P_seq, S_seq,
+                    epoch=epoch, batch_idx=batch_idx,
                     output_dir=f'./ckpt/{model.model_name}/',
                     mode='test' if epoch == -1 else 'valid')
 
-    print(f'\r\nEpoch valid loss : {plot_loss_valid}')
+    print(f'\r\nEpoch valid loss: {sum(plot_loss_valid) / len(plot_loss_valid)}\n')
     return plot_loss_valid
 
 
-def loss_fn(frame, S_lbl, E, P, S, time_weight, loss_weight, batch_idx, n_batches):
+def loss_fn(E, frame, P, S, S_lbl, time_weight, loss_weight, batch_idx, n_batches):
 
-    # Latent variables prediction loss (unsupervised)
-    zeros = [torch.zeros_like(E[l]) for l in range(len(E))]
-    latent_loss = sum([w * (mae_loss_fn(E[l], zeros[l])) for l, w in enumerate(loss_weight['latent'])])
-    # print([torch.sum(E[l].detach().cpu().item()) for l in range(len(E))])
+    # Latent prediction error loss (unsupervised)
+    # with torch.no_grad():
+    surprise = 0.0 if E is None else sum([torch.mean(E[l]) * w for l, w in enumerate(loss_weight['latent'])])
     
     # Image prediction loss (unsupervised)
-    img_bce_loss = bce_loss_fn(P, frame) * loss_weight['img_bce'] if loss_weight['img_bce'] else 0.0
-    img_mae_loss = mae_loss_fn(P, frame) * loss_weight['img_mae'] if loss_weight['img_mae'] else 0.0
-    img_mse_loss = mse_loss_fn(P, frame) * loss_weight['img_mse'] if loss_weight['img_mse'] else 0.0
-    
-    # Segmentation prediction loss (supervised)
+    img_mae_loss = mae_loss_fn(P, frame) * loss_weight['prd_mae'] if loss_weight['prd_mae'] else 0.0
+    img_mse_loss = mse_loss_fn(P, frame) * loss_weight['prd_mse'] if loss_weight['prd_mse'] else 0.0
+    img_bce_loss = bce_loss_fn(P, frame) * loss_weight['prd_bce'] if loss_weight['prd_bce'] else 0.0
+
+    # Localization prediction loss (supervised)
+    seg_mae_loss = mae_loss_fn(S, S_lbl) * loss_weight['seg_mae'] if loss_weight['seg_mae'] else 0.0
+    seg_mse_loss = mse_loss_fn(S, S_lbl) * loss_weight['seg_dic'] if loss_weight['seg_mse'] else 0.0
     seg_bce_loss = bce_loss_fn(S, S_lbl) * loss_weight['seg_bce'] if loss_weight['seg_bce'] else 0.0
-    seg_foc_loss = mae_loss_fn(S, S_lbl) * loss_weight['seg_foc'] if loss_weight['seg_foc'] else 0.0
-    seg_mse_loss = mse_loss_fn(S, S_lbl) * loss_weight['seg_mse'] if loss_weight['seg_mse'] else 0.0
-    seg_dice_loss = dice_loss_fn(S, S_lbl) * loss_weight['seg_dice'] if loss_weight['seg_dice'] else 0.0
-    
+    seg_foc_loss = foc_loss_fn(S, S_lbl) * loss_weight['seg_foc'] if loss_weight['seg_foc'] else 0.0
+    seg_dic_loss = dic_loss_fn(S, S_lbl) * loss_weight['seg_dic'] if loss_weight['seg_dic'] else 0.0
+   
     # Total loss
-    img_loss = img_bce_loss + img_mae_loss + img_mse_loss
-    seg_loss = seg_bce_loss + seg_foc_loss + seg_mse_loss + seg_dice_loss
-    total_loss = latent_loss
-    if img_loss > 0:
-        total_loss = total_loss + img_loss
-    if seg_loss > 0:
-        total_loss = total_loss + seg_loss
+    img_loss = img_mae_loss + img_mse_loss + img_bce_loss
+    seg_loss = seg_mae_loss + seg_mse_loss + seg_bce_loss + seg_foc_loss + seg_dic_loss
+    total_loss = surprise + img_loss + (seg_loss if seg_loss > 0 else 0.0)
     print(
-        f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} [' +
-        f'latent: {latent_loss:.3f}, ' +
-        f'image: {img_loss:.3f} (bce: {img_bce_loss:.3f}, ' +
-        f'mae: {img_mae_loss:.3f}, mse: {img_mse_loss:.3f}), ' +
-        f'segm: {seg_loss:.3f} (bce: {seg_bce_loss:.3f}, ' +
-        f'foc: {seg_foc_loss:.3f}, mse: {seg_mse_loss:.3f}, dice: {seg_dice_loss:.3f})' +
-        f']', end='')
+        f'\rBatch ({batch_idx + 1}/{n_batches}) - loss: {total_loss:.3f} [surprise: {surprise:.3f}, ' +
+        f'image: {img_loss:.3f} (mae: {img_mae_loss:.3f}, mse: {img_mse_loss:.3f}, bce: {img_bce_loss:.3f}) ' +
+        f'seg: {seg_loss:.3f} (mae: {seg_mae_loss:.3f}, mse: {seg_mse_loss:.3f}, bce: {seg_bce_loss:.3f}, ' +
+        f'foc: {seg_foc_loss:.3f}, dic: {seg_dic_loss:.3f})]', end='')
     return total_loss * time_weight
 
 
-def plot_recons(A_seq, S_lbl_seq, P_seq, S_seq,
-    epoch=0, sample_indexes=(0,), output_dir='./', mode='train'):
+def plot_recons(A_seq, S_lbl_seq, P_seq, S_seq, epoch=0, batch_idx=(0,), output_dir='./', mode='train'):
 
     batch_size, n_channels, n_rows, n_cols, n_frames = A_seq.shape
-    img_plot = A_seq.numpy() * DATASET_STD + DATASET_MEAN
-    prediction_plot = P_seq.numpy() * DATASET_STD + DATASET_MEAN
-    seg_lbl = onehot_to_rgb(S_lbl_seq.numpy())
+    img_plot = A_seq.numpy()
+    pred_plot = P_seq.numpy()
+    seg_lbl_plot = onehot_to_rgb(S_lbl_seq.numpy())
     seg_plot = onehot_to_rgb(S_seq.numpy())
-    v_rect = np.ones((batch_size, n_channels, n_rows, 10, n_frames))
-    data_rec = np.concatenate(
-        (img_plot, v_rect, prediction_plot, v_rect, v_rect, seg_lbl, v_rect, seg_plot), axis=3)
-    out_batch = data_rec.transpose((0, 2, 3, 1, 4))
-    for s_idx in sample_indexes:
-        out_seq = out_batch[s_idx]
-        gif_frames = [(255. * out_seq[..., t]).astype(np.uint8) for t in range(n_frames)]
-        gif_path = f'{output_dir}{mode}_epoch{epoch:02}_id{s_idx:02}'
-        imageio.mimsave(f'{gif_path}.gif', gif_frames, duration=0.1)
+    
+    rect_width = 10
+    h_rect = np.ones((batch_size, n_channels, rect_width, n_cols, n_frames))
+    v_rect = np.ones((batch_size, n_channels, 2 * n_rows + rect_width, rect_width, n_frames))
+    img_data = np.concatenate((img_plot, h_rect, pred_plot), axis=2)
+    loc_data = np.concatenate((seg_lbl_plot, h_rect, seg_plot), axis=2)
+    out_batch = np.concatenate((img_data, v_rect, loc_data), axis=3)
+    out_batch = out_batch.transpose((0, 2, 3, 1, 4))
+
+    out_seq = out_batch[0]
+    gif_frames = [(255. * out_seq[..., t]).astype(np.uint8) for t in range(n_frames)]
+    gif_path = f'{output_dir}{mode}_epoch_{epoch:03}_id_{batch_idx:03}'
+    imageio.mimsave(f'{gif_path}.gif', gif_frames, duration=0.1)
 
 
 def onehot_to_rgb(onehot_tensor):
@@ -183,29 +185,3 @@ def hsv_to_rgb(hue):
         [1, v, 0], [v, 1, 0], [0, 1, v],
         [0, v, 1], [v, 0, 1], [1, 0, v]]
     return hsv_space[int(hue * 6)]
-
-
-def warp_image(image, saccade_location):
-    saccade_location = (saccade_location[1], saccade_location[0])
-    g0 = image.numpy().squeeze().transpose(1, 2, 0)
-    n_rows, n_cols = g0.shape[0], g0.shape[1]
-    radius = 2 * (n_cols ** 2 + n_rows ** 2) ** 0.5
-    map_args = {
-        'k_angle': n_rows / (2 * np.pi),
-        'k_radius': n_cols / np.log(radius),
-        'center': saccade_location}
-    g1 = skimage.transform.warp_polar(
-        np.swapaxes(g0, 1, 0), center=saccade_location, radius=radius,
-        output_shape=(n_rows, n_cols), scaling='log', multichannel=True)
-    g2 = skimage.transform.warp(g1, log_polar_mapping, map_args=map_args)
-    g2[g2==0] = g0[g2==0]  # TODO: THINK ABOUT THIS
-    return torch.tensor(np.expand_dims(g2.transpose(2, 0, 1), axis=0))
-
-
-def log_polar_mapping(output_coords, k_angle, k_radius, center):
-    zz = (output_coords[:, 1] - center[1]) + 1j * (output_coords[:, 0] - center[0])
-    log_zz = np.log(zz)
-    rho = np.real(log_zz) * k_radius
-    theta = (np.imag(log_zz) % (2 * np.pi)) * k_angle
-    coords = np.column_stack((rho, theta))
-    return coords

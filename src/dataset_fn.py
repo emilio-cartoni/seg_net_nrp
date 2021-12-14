@@ -1,178 +1,115 @@
-import torch.utils.data as data
-import numpy as np
-import torchvision.transforms as IT
-import torchvision.transforms.functional as TF
-import os
-import random
+from os import remove
 import torch
-from PIL import Image
-# DATASET_MEAN = [0.38, 0.38, 0.38]
-# DATASET_STD = [0.28, 0.28, 0.28]
-DATASET_MEAN = [0.00, 0.00, 0.00]  # use this to have data between 0.0 and 1.0
-DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
+import torch.utils.data as data
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import numpy as np
+import h5py
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 
-class Mots_Dataset(data.Dataset):
-    def __init__(self, root_dir, train_valid_subfolders, n_classes, n_frames, remove_ground):
-        self.sample_root = os.path.join(root_dir, 'training', 'image_02')
-        self.label_root = os.path.join(root_dir, 'instances')
-        self.train_valid_subfolders = train_valid_subfolders
-        self.n_classes = n_classes
-        self.n_frames = n_frames  # idea: variable n_frames for each batch?
+class SegmentationDataset(data.Dataset):
+
+    def __init__(self, h5_path, from_to, n_classes, augmentation, remove_ground, speedup_factor):
+
+        # Parameters pre-initialization
+        super(SegmentationDataset, self).__init__()
+        self.h5_path = h5_path
+        self.from_to = from_to
+        self.n_classes = n_classes + int(remove_ground)
+        self.augmentation = augmentation
         self.remove_ground = remove_ground
+        self.speedup_factor = speedup_factor
+        self.img_samples = None
+        self.lbl_segment = None
+        with h5py.File(h5_path, 'r') as f:
+            n_samples, self.n_frames, height, width = f['rgb_samples'].shape[:-1]
+            try:
+                self.dataset_length = from_to[1] - from_to[0]
+            except TypeError:
+                self.dataset_length = n_samples - from_to[0]
 
-    def transform(self, list_of_images):
-        """
-        Parameters
-        ----------
-        list_of_images : list
-        Must be a list of tuples, where each tuple inside the list contains both a training image
-        and its corresponding label.
-
-        Returns
-        -------
-        transformed_images : list
-        A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
-        """
-        transformed_images = []
-        resize = IT.Resize(size=(160, 512), interpolation=IT.InterpolationMode.NEAREST)
-        normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        i, j, h, w = IT.RandomCrop.get_params(list_of_images[0][0], output_size=(320, 1024))
-        for image, label in list_of_images:
-            image, label = TF.crop(image, i, j, h, w), TF.crop(label, i, j, h, w)
-            image, label = resize(image), resize(label)
-            image, label = TF.to_tensor(np.array(image)), TF.to_tensor(np.array(label))
-            image = normalize(image)
-            transformed_images.append((image, label))
-        return transformed_images
-
-    def __len__(self):
-        return len(self.train_valid_subfolders)
+        # Data augmentation initialization
+        min_max_h = (int(height * 0.9), height - 1)
+        self.transform = A.Compose([
+            A.OneOf([
+                A.RandomSizedCrop(
+                    min_max_height=min_max_h, height=height, width=width, p=0.5),
+                A.PadIfNeeded(min_height=height, min_width=width, p=0.5)], p=1),
+            A.HorizontalFlip(p=0.5),
+            A.Rotate(limit=(-10, 10)),
+            A.RandomBrightnessContrast(),
+            A.RandomGamma(),
+            # A.GaussianBlur(),  # keep? for now, no
+            # A.RandomScale(scale_limit=(-0.5, -0.5)),
+            # A.Resize(128, 128),
+            A.RandomCrop(260, 260),
+            A.ColorJitter(),
+            A.ChannelDropout(),
+            A.ChannelShuffle(),
+            A.GaussNoise(var_limit=(0.0, 50.0), mean=0.0),
+            A.Normalize((0.0,), (1.0,)),
+            ToTensorV2()],
+            additional_targets={f'image{t}': 'image' for t in range(1, 20)})
 
     def __getitem__(self, index):
-        sample_dir = os.path.join(self.sample_root, f'{index:04}')
-        label_dir = os.path.join(self.label_root, f'{index:04}')
-        sample_paths = [os.path.join(sample_dir, p) for p in os.listdir(sample_dir)]
-        label_paths = [os.path.join(label_dir, p) for p in os.listdir(label_dir)]
-        n_frames = min(self.n_frames, len(sample_paths) - 1)
-        first_frame = random.choice(np.arange(len(sample_paths) - n_frames))
-        sample_frames = sample_paths[first_frame:first_frame + n_frames]
-        label_frames = label_paths[first_frame:first_frame + n_frames]
 
-        samples_and_labels = []
-        for i in range(n_frames):
-            sample = Image.open(os.path.join(sample_dir, sample_frames[i]))
-            label = Image.open(os.path.join(label_dir, label_frames[i]))
-            samples_and_labels.append((sample, label))
-        samples_and_labels = self.transform(samples_and_labels)
+        # Initialize datasets
+        index += self.from_to[0]
+        if self.img_samples is None:
+            self.img_samples = h5py.File(self.h5_path, 'r')['rgb_samples']
+            self.lbl_segment = h5py.File(self.h5_path, 'r')['lbl_segments']
 
-        samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
-        labels = torch.stack([item[1] for item in samples_and_labels], dim=-1)
-        labels = torch.div(labels, 1000, rounding_mode='floor')
-        labels[labels == 10] = self.n_classes - int(not self.remove_ground)
-        labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes + int(self.remove_ground))
-        labels = torch.movedim(labels, -1, 1)
-        labels = torch.squeeze(labels, dim=0)
-        labels = labels.type(torch.FloatTensor)
+        # Data augmentation
+        if self.augmentation:
+            samples = np.array(self.img_samples[index])
+            lbl_segm = np.array(self.lbl_segment[index])
+            lbl_segm = [lbl_segm[t] for t in range(self.n_frames)]
+            sample0 = samples[0]
+            sampleT = {f'image{t}': samples[t] for t in range(1, self.n_frames)}
+            augment = self.transform(image=sample0, masks=lbl_segm, **sampleT)
+            samples = [augment['image']] + [augment[f'image{t}'] for t in range(1, self.n_frames)]
+            samples = torch.stack(samples, dim=3)
+            lbl_segm = torch.from_numpy(np.array(augment['masks'][:self.n_frames])).long()
+            lbl_segm = [F.one_hot(lbl_segm[t], num_classes=self.n_classes) for t in range(self.n_frames)]
+            lbl_segm = torch.stack(lbl_segm, dim=3).permute((2, 0, 1, 3)).float()
+
+        # No augmentation (e.g. for testing)
+        else:
+            samples = torch.from_numpy(np.array(self.img_samples[index]).transpose((-1, 1, 2, 0))) / 255.0
+            lbl_segm = torch.from_numpy(np.array(self.lbl_segment[index]).transpose((1, 2, 0)))
+            lbl_segm = F.one_hot(lbl_segm.long(), num_classes=self.n_classes).permute(-1, 0, 1, 2).float()
+
+        # Additional modifications to the data
+        if self.speedup_factor > 1:
+            zero_frame = np.random.randint(self.speedup_factor)
+            samples = samples[..., zero_frame::self.speedup_factor]
+            lbl_segm = lbl_segm[..., zero_frame::self.speedup_factor]
         if self.remove_ground:
-            labels = labels[1:]
-        return samples, labels
+            lbl_segm = lbl_segm[1:]
 
-
-class SQMDataset(data.Dataset):
-    def __init__(self, root_dir, testing_folders, n_classes, remove_ground):
-        self.sample_root = os.path.join(root_dir, 'testing')
-        self.testing_folders = testing_folders
-        self.n_classes = n_classes
-        self.remove_ground = remove_ground
-
-    def transform(self, list_of_images):
-        """
-        Parameters
-        ----------
-        list_of_images : list
-        Must be a list of tuples, where each tuple inside the list contains both a training image
-        and its corresponding label.
-
-        Returns
-        -------
-        transformed_images : list
-        A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
-        """
-        transformed_images = []
-        normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        for image, label in list_of_images:
-            image, label = TF.to_tensor(np.array(image)), TF.to_tensor(np.array(label))
-            image = normalize(image)
-            transformed_images.append((image, label))
-        return transformed_images
+        # Return the sample sequence to the computer
+        return samples.to(device='cuda'), lbl_segm.to(device='cuda')
 
     def __len__(self):
-        return len(self.testing_folders)
-
-    def __getitem__(self, index):
-        sample_dir = os.path.join(self.sample_root, f'{index:04}')
-        sample_paths = [os.path.join(sample_dir, p) for p in os.listdir(sample_dir)]
-        n_frames = len(sample_paths) - 1
-        first_frame = random.choice(np.arange(len(sample_paths) - n_frames))
-        sample_frames = sample_paths[first_frame:first_frame + n_frames]
-
-        samples_and_labels = []
-        for i in range(n_frames):
-            sample = Image.open(os.path.join(sample_dir, sample_frames[i]))
-            samples_and_labels.append((sample, sample))
-        samples_and_labels = self.transform(samples_and_labels)
-
-        samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
-        labels = torch.stack([item[1] for item in samples_and_labels], dim=-1)
-        labels = torch.div(labels, 1000, rounding_mode='floor')
-        labels[labels == 10] = self.n_classes - int(not self.remove_ground)
-        labels = torch.nn.functional.one_hot(labels.to(torch.int64), num_classes=self.n_classes + int(self.remove_ground))
-        labels = torch.movedim(labels, -1, 1)
-        #labels = torch.squeeze(labels, dim=0)
-        labels = labels[0]
-        labels = labels.type(torch.FloatTensor)
-        if self.remove_ground:
-            labels = labels[1:]
-
-        return samples, labels
+        return self.dataset_length
 
 
-def get_datasets_seg(
-    root_dir, train_valid_ratio, batch_size_train, batch_size_valid, n_frames, augmentation, n_classes, remove_ground):
-  
-    # Data train valid
-    training_folders = os.listdir(os.path.join(root_dir, 'training', 'image_02'))
-    train_subfolders = [folder for folder in training_folders[:int(train_valid_ratio * len(training_folders))]]
-    valid_subfolders = [folder for folder in training_folders[int(train_valid_ratio * len(training_folders)):]]
-
+def get_segmentation_dataloaders(dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid, n_classes,
+                                 augmentation=False, remove_ground=True, speedup_factor=1, mode=None):
     # Training dataloader
-    train_dataset = Mots_Dataset(root_dir, train_subfolders, n_classes, n_frames, remove_ground)
-    train_dataloader = data.DataLoader(
-        train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True)
+    if mode != 'test':
+        train_bounds = (0, int(n_samples * tr_ratio))
+        train_dataset = SegmentationDataset(dataset_path, train_bounds, n_classes, augmentation, remove_ground, speedup_factor)
+        train_dataloader = data.DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True)
+    else:
+        train_dataloader = None
 
-    # Validation dataloader
-    valid_dataset = Mots_Dataset(root_dir, valid_subfolders, n_classes, n_frames, remove_ground)
-    valid_dataloader = data.DataLoader(
-        valid_dataset, batch_size=batch_size_valid, shuffle=True, pin_memory=True)
-
-    # label_mean = torch.tensor([0.0, 0.0, 0.0, 0.0]).cuda()
-    # for sample, label in train_dataloader:
-    #   label_mean = label_mean + torch.mean(label, dim=(0, 2, 3, 4))
-    # for sample, label in valid_dataloader:
-    #   label_mean = label_mean + torch.mean(label, dim=(0, 2, 3, 4))
-    # label_mean = label_mean / (len(train_dataloader) + len(valid_dataloader))
-    # print(label_mean)
-    # exit()
+    # Validation dataloader (here, augmentation is False)
+    valid_bounds = (int(n_samples * tr_ratio), None)  # None means very last one
+    valid_dataset = SegmentationDataset(dataset_path, valid_bounds, n_classes, False, remove_ground, speedup_factor)
+    valid_dataloader = data.DataLoader(valid_dataset, batch_size=batch_size_valid, shuffle=True)
 
     # Return the dataloaders to the computer
     return train_dataloader, valid_dataloader
-
-
-def get_SQM_dataset(root_dir, n_classes, remove_ground):
-    testing_folders = os.listdir(os.path.join(root_dir, 'testing'))
-    testing_subfolders = [folder for folder in testing_folders]
-
-    testing_dataset = SQMDataset(root_dir, testing_subfolders, n_classes, remove_ground)
-    testing_dataloader = data.DataLoader(testing_dataset, batch_size=1, shuffle=False)
-    return testing_dataloader
