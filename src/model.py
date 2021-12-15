@@ -48,15 +48,12 @@ class PredNetVGG(nn.Module):
             td_channels[l], bu_channels[l], kernel_size=1, padding=0) for l in range(n_layers)])
         
         # Top-down connections (td)
-        td_upsample, td_conv = [], []
+        td_conv = []
         for l in range(self.n_layers):
-            # in_channels = 2 * bu_channels[l] + (0 if l == n_layers - 1 else td_channels[l + 1])
-            in_channels = 2 * bu_channels[l]
+            in_channels = 2 * bu_channels[l]  # 2 * bu_channels[l] + (0 if l == n_layers - 1 else td_channels[l + 1])
             td_conv.append(hConvGRUCell(in_channels, td_channels[l], kernel_size=3))
-        self.td_upsample = nn.ModuleList([nn.Upsample(scale_factor=2) for l in range(n_layers - 1)])
-        # self.td_upsample = nn.ModuleList([nn.ConvTranspose2d(td_channels[l + 1], td_channels[l + 1],
-        #         kernel_size=3, stride=2, padding=1, output_padding=1) for l in range(n_layers - 1)])
         self.td_conv = nn.ModuleList(td_conv)
+        self.td_upsample = nn.ModuleList([nn.Upsample(scale_factor=2) for l in range(n_layers - 1)])
         self.td_attn = nn.ModuleList([None] + [ChannelAttention(td_channels[l]) for l in range(1, n_layers)])
         
         # Image prediction
@@ -91,9 +88,9 @@ class PredNetVGG(nn.Module):
             R = self.R_state[l]
             E = self.E_state[l]
             if l < self.n_layers - 1:
-                E = self.bu_attn[l](E) * E  # bottom-up attention (space-like)
+                E = self.bu_attn[l](E) * E  # bottom-up (spatial) attention
                 td_input = self.td_upsample[l](self.R_state[l + 1])
-                td_input = self.td_attn[l + 1](td_input) * td_input  # top-down attention (feature-like)
+                td_input = self.td_attn[l + 1](td_input) * td_input  # top-down (feature) attention
                 E = E + td_input  # torch.cat((E, td_input), dim=1)
             R_pile[l] = self.td_conv[l](E, R)
 
@@ -102,7 +99,6 @@ class PredNetVGG(nn.Module):
             A_hat = F.relu(self.la_conv[l](self.R_state[l]))  # post-synaptic activity of representation prediction add ReLU???
             A = self.bu_conv[l](self.bu_drop[l](A))  # presynaptic activity of bottom-up input
             error = F.relu(torch.cat((A - A_hat, A_hat - A), dim=1))  # post-synaptic activity of A (error goes up)
-            # error = self.bu_attn[l](error) * error  # bottom-up attention (space-like)
             E_pile[l] = error  # stored for later: used in top-down pass
             A = F.max_pool2d(A if self.do_untouched_bu else error, kernel_size=2, stride=2)  # A update for next bu-layer
 
@@ -185,17 +181,19 @@ class PredNetVGG(nn.Module):
             do_prediction=save['do_prediction'],
             do_segmentation=save['do_segmentation'])
         model.load_state_dict(save['model_params'])
-        learning_rate, lr_decay_time, lr_decay_rate, betas = lr_params
-        # learning_rate, first_cycle_steps, cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas = lr_params
+        scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas, first_cycle_steps,\
+            cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas = lr_params
         optimizer = torch.optim.AdamW(
             params=model.parameters(), lr=learning_rate, betas=betas)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            range(lr_decay_time, (n_epochs_run + 1) * 10, lr_decay_time),
-            gamma=lr_decay_rate)
-        # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=first_cycle_steps,
-        #                                       cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
-        #                                       warmup_steps=warmup_steps, gamma=gamma)
+        if scheduler_type == 'multistep':    
+            scheduler = torch.optim.lr_scheduler.MultiStepLR(
+                optimizer,
+                range(lr_decay_time, (n_epochs_run + 1) * 10, lr_decay_time),
+                gamma=lr_decay_rate)
+        elif scheduler_type == 'cosannealwarmuprestart':
+            scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=first_cycle_steps,
+                                                  cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
+                                                  warmup_steps=warmup_steps, gamma=gamma)
         optimizer.load_state_dict(save['optimizer_params'])
         scheduler.load_state_dict(save['scheduler_params'])
         valid_losses = save['valid_losses']

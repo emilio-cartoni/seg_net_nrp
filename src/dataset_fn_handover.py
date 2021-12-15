@@ -25,11 +25,13 @@ class Handover_Dataset(data.Dataset):
 
     def transform(self, image_list, label_dict_list):
         transformed_images_and_labels = []
-        resize = IT.Resize(size=(120, 120), interpolation=IT.InterpolationMode.NEAREST)
+        # resize = IT.Resize(size=(120, 120), interpolation=IT.InterpolationMode.NEAREST)
+        # i, j, h, w = IT.RandomCrop.get_params(image_list[0], output_size=(240, 240))
+        resize = IT.Resize(size=(300, 300), interpolation=IT.InterpolationMode.NEAREST)
         normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        i, j, h, w = IT.RandomCrop.get_params(image_list[0], output_size=(240, 240))
         for image, label_dict in zip(image_list, label_dict_list):
-            image = resize(TF.crop(image, i, j, h, w))
+            # image = TF.crop(image, i, j, h, w)
+            image = resize(image)
             image_tensor = normalize(TF.to_tensor(np.array(image)))
             labels = []
             for category_content in self.categories.values():
@@ -37,7 +39,8 @@ class Handover_Dataset(data.Dataset):
                 for label in self.labels:
                     if label in category_content:
                         label_pil = label_dict[label]
-                        label_pil = resize(TF.crop(label_pil, i, j, h, w))
+                        # label_pil = TF.crop(label_pil, i, j, h, w)
+                        label_pil = resize(label_pil)
                         to_append += TF.to_tensor(np.array(label_pil)[:, :, -1])
                 labels.append(torch.minimum(torch.ones_like(to_append), to_append))
             label_tensor = torch.stack(labels, dim=0)

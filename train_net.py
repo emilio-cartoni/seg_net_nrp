@@ -10,9 +10,9 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Model parameters
-load_model, do_time_aligned, n_layers = False, True, 3
+load_model, do_time_aligned, n_layers = True, True, 3
 do_untouched_bu = False
-batch_size_train, batch_size_valid = 4, 12
+batch_size_train, batch_size_valid = 1, 12
 prd_layers = tuple([l for l in [0, 2] if l < n_layers])
 seg_layers = tuple([l for l in [0, 1] if l < n_layers])
 bu_channels = (64, 128, 256, 512)[:n_layers]
@@ -23,6 +23,7 @@ dropout_rates = (0.0, 0.0, 0.0, 0.0, 0.0)[:n_layers]
 n_epochs_run, n_epochs_save, epoch_to_load = 1000, 50, None
 learning_rate, lr_decay_time, lr_decay_rate, betas = 5e-4, 50, 0.75, (0.9, 0.98)
 first_cycle_steps, cycle_mult, max_lr, min_lr, warmup_steps, gamma = 10, 1.0, 1e-4, 1e-5, 2, 1.0
+scheduler_type = 'multistep'  # 'multistep', 'cosannealwarmuprestart'
 loss_w = {
     'latent': (1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
     'prd_mae': 1.0 if len(prd_layers) > 0 else 0.0,
@@ -83,18 +84,20 @@ if not load_model:
                        do_time_aligned, do_prediction, do_segmentation)
     train_losses, valid_losses, last_epoch = [], [], 0
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate, betas=betas)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                     milestones=range(lr_decay_time, 10 * (n_epochs_run + 1),
-                                                                      lr_decay_time),
-                                                     gamma=lr_decay_rate)
-    # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=first_cycle_steps,
-    #                                           cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
-    #                                           warmup_steps=warmup_steps, gamma=gamma)
+    if scheduler_type == 'multistep':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                        milestones=range(lr_decay_time, 10 * (n_epochs_run + 1),
+                                                                        lr_decay_time),
+                                                        gamma=lr_decay_rate)
+    elif scheduler_type == 'cosannealwarmuprestart':
+        scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=first_cycle_steps,
+                                                  cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
+                                                  warmup_steps=warmup_steps, gamma=gamma)
     train_losses, valid_losses = [], []
 else:
     print(f'\nLoading model: {model_name}')
-    lr_params = [learning_rate, lr_decay_time, lr_decay_rate, betas]
-    # lr_params = [learning_rate, first_cycle_steps, cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas]
+    lr_params = [scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas,
+                 first_cycle_steps, cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas]
     model, optimizer, scheduler, train_losses, valid_losses = \
         PredNetVGG.load_model(model_name, lr_params, n_epochs_run, epoch_to_load)
     last_epoch = scheduler.last_epoch
