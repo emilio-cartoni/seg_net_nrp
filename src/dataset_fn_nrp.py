@@ -2,7 +2,6 @@ from os import remove
 import torch
 import torch.utils.data as data
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 import numpy as np
 import h5py
 import albumentations as A
@@ -12,7 +11,6 @@ from albumentations.pytorch import ToTensorV2
 class SegmentationDataset(data.Dataset):
 
     def __init__(self, h5_path, from_to, n_classes, augmentation, remove_ground, speedup_factor):
-
         # Parameters pre-initialization
         super(SegmentationDataset, self).__init__()
         self.h5_path = h5_path
@@ -31,6 +29,8 @@ class SegmentationDataset(data.Dataset):
                 self.dataset_length = n_samples - from_to[0]
 
         # Data augmentation initialization
+        crop_shape = (260, 260)
+        input_shape = (160, 160)
         min_max_h = (int(height * 0.9), height - 1)
         self.transform = A.Compose([
             A.OneOf([
@@ -41,10 +41,9 @@ class SegmentationDataset(data.Dataset):
             A.Rotate(limit=(-10, 10)),
             A.RandomBrightnessContrast(),
             A.RandomGamma(),
-            # A.GaussianBlur(),  # keep? for now, no
-            # A.RandomScale(scale_limit=(-0.5, -0.5)),
-            # A.Resize(128, 128),
-            A.RandomCrop(260, 260),
+            A.GaussianBlur(p=0.5),  # keep? for now, no
+            A.RandomCrop(*crop_shape),
+            A.Resize(*input_shape),
             A.ColorJitter(),
             A.ChannelDropout(),
             A.ChannelShuffle(),
@@ -52,9 +51,12 @@ class SegmentationDataset(data.Dataset):
             A.Normalize((0.0,), (1.0,)),
             ToTensorV2()],
             additional_targets={f'image{t}': 'image' for t in range(1, 20)})
+        self.resize = A.Compose([A.Resize(*input_shape),
+                                 A.Normalize((0.0,), (1.0,)),
+                                 ToTensorV2()],
+                                additional_targets={f'image{t}': 'image' for t in range(1, 20)})
 
     def __getitem__(self, index):
-
         # Initialize datasets
         index += self.from_to[0]
         if self.img_samples is None:
@@ -62,24 +64,18 @@ class SegmentationDataset(data.Dataset):
             self.lbl_segment = h5py.File(self.h5_path, 'r')['lbl_segments']
 
         # Data augmentation
-        if self.augmentation:
-            samples = np.array(self.img_samples[index])
-            lbl_segm = np.array(self.lbl_segment[index])
-            lbl_segm = [lbl_segm[t] for t in range(self.n_frames)]
-            sample0 = samples[0]
-            sampleT = {f'image{t}': samples[t] for t in range(1, self.n_frames)}
-            augment = self.transform(image=sample0, masks=lbl_segm, **sampleT)
-            samples = [augment['image']] + [augment[f'image{t}'] for t in range(1, self.n_frames)]
-            samples = torch.stack(samples, dim=3)
-            lbl_segm = torch.from_numpy(np.array(augment['masks'][:self.n_frames])).long()
-            lbl_segm = [F.one_hot(lbl_segm[t], num_classes=self.n_classes) for t in range(self.n_frames)]
-            lbl_segm = torch.stack(lbl_segm, dim=3).permute((2, 0, 1, 3)).float()
-
-        # No augmentation (e.g. for testing)
-        else:
-            samples = torch.from_numpy(np.array(self.img_samples[index]).transpose((-1, 1, 2, 0))) / 255.0
-            lbl_segm = torch.from_numpy(np.array(self.lbl_segment[index]).transpose((1, 2, 0)))
-            lbl_segm = F.one_hot(lbl_segm.long(), num_classes=self.n_classes).permute(-1, 0, 1, 2).float()
+        transform = self.transform if self.augmentation else self.resize
+        samples = np.array(self.img_samples[index])
+        lbl_segm = np.array(self.lbl_segment[index])
+        lbl_segm = [lbl_segm[t] for t in range(self.n_frames)]
+        sample0 = samples[0]
+        sampleT = {f'image{t}': samples[t] for t in range(1, self.n_frames)}
+        augment = transform(image=sample0, masks=lbl_segm, **sampleT)
+        samples = [augment['image']] + [augment[f'image{t}'] for t in range(1, self.n_frames)]
+        samples = torch.stack(samples, dim=3)
+        lbl_segm = torch.from_numpy(np.array(augment['masks'][:self.n_frames])).long()
+        lbl_segm = [F.one_hot(lbl_segm[t], num_classes=self.n_classes) for t in range(self.n_frames)]
+        lbl_segm = torch.stack(lbl_segm, dim=3).permute((2, 0, 1, 3)).float()
 
         # Additional modifications to the data
         if self.speedup_factor > 1:
@@ -96,8 +92,8 @@ class SegmentationDataset(data.Dataset):
         return self.dataset_length
 
 
-def get_segmentation_dataloaders(dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid, n_classes,
-                                 augmentation=False, remove_ground=True, speedup_factor=1, mode=None):
+def get_nrp_dataloaders(dataset_path, tr_ratio, n_samples, batch_size_train, batch_size_valid, n_classes,
+                        augmentation=False, remove_ground=True, speedup_factor=1, mode=None):
     # Training dataloader
     if mode != 'test':
         train_bounds = (0, int(n_samples * tr_ratio))

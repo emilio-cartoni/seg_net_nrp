@@ -1,4 +1,5 @@
 from numpy.core.arrayprint import set_string_function
+from scipy.fft import set_backend
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,59 +12,46 @@ mae_loss_fn = nn.L1Loss()
 foc_loss_fn = FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')
 # dic_loss_fn = DiceLoss(weight=[0.5, 1.0, 5.0, 1.0])
 # dic_loss_fn = DiceLoss(weight=[1.0, 5.0, 1.0])
-dic_loss_fn = DiceLoss(weight=[10.0, 40.0, 70.0, 1.0])  # for handover dataset including the torso
-# dic_loss_fn = DiceLoss()
+# dic_loss_fn = DiceLoss(weight=[10.0, 40.0, 70.0, 1.0])  # for handover dataset including the torso
+# dic_loss_fn = DiceLoss(weight=[1.0, 10.0, 10.0, 50.0, 50.0])  # 'torso', 'upper_arm', 'forearm', 'hand', 'tool'
+dic_loss_fn = DiceLoss()
 
-def train_fn(
-    train_dl, model, optimizer, loss_weight, t_start, n_backprop_frames, epoch, plot_gif=True):
+def train_fn(train_dl, model, optimizer, loss_weight, remove_ground,
+             t_start, n_backprop_frames, epoch, plot_gif=True):
 
-    # Select which sub-network to train
-    this_loss_weight = {key: value for key, value in loss_weight.items()}  # dict(loss_weight)
-    if 0:
-        seg_only = ((epoch % 2) != 0)
-        for p in model.parameters():
-            p.requires_grad = (not seg_only)
-        for p in model.seg_decoder.parameters():
-            p.requires_grad = seg_only
-        for k in this_loss_weight.keys():
-            if ('seg' in k) == (not seg_only):
-                this_loss_weight[k] = [0.0 for _ in this_loss_weight[k]] if type(this_loss_weight[k]) is tuple else 0.0
-    
     # Train the network for one epoch
     model.train()
     plot_loss_train = []  # 0.0
     n_batches = len(train_dl)
-    TA = True  # model.do_time_aligned
     with torch.autograd.set_detect_anomaly(True):
         for batch_idx, (images, S_lbls) in enumerate(train_dl):
             batch_loss_train = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
             n_frames = images.shape[-1]
             loss = 0.0
-            for t in range(TA, TA + n_frames):
-                A = images[..., t - TA].to(device='cuda')
-                S_lbl = S_lbls[..., t - TA].to(device='cuda')               
-                E, P, S = model(A, t - TA)
+            for t in range(n_frames):
+                A = images[..., t].to(device='cuda')
+                S_lbl = S_lbls[..., t].to(device='cuda')               
+                E, P, S = model(A, t)
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
                 S_lbl_seq.append(S_lbl.detach().cpu())
                 time_weight = float(t >= t_start)
-                loss = loss + loss_fn(
-                    E, A, P, S, S_lbl, time_weight, this_loss_weight, batch_idx, n_batches)
-                if (t - TA + 1) % n_backprop_frames == 0:
-                    for p in model.parameters(): p.grad = None  # equivalent to zero_grad(), but faster
+                loss = loss + loss_fn(E, A, P, S, S_lbl, time_weight, loss_weight,
+                                      remove_ground, batch_idx, n_batches)
+                if (t + 1) % n_backprop_frames == 0:
+                    optimizer.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)  # slowdown?
                     optimizer.step()
                     model.E_state = [s.detach() if s is not None else s for s in model.E_state]
                     model.R_state = [s.detach() if s is not None else s for s in model.R_state]
-                    model.I1_state = [s.detach() if s is not None else s for s in model.I1_state]
-                    model.I2_state = [s.detach() if s is not None else s for s in model.I2_state]
                     batch_loss_train += loss.detach().item() / n_frames
                     loss = 0.0
+                
             plot_loss_train.append(batch_loss_train)  # += batch_loss_train / n_batches
-            if ((epoch == 0 and (batch_idx % 100) == 0) or (batch_idx == 0)) and plot_gif:
+            if ((epoch == 0 and (batch_idx % 10) == 0) or (batch_idx == 0)) and plot_gif:
                 A_seq = torch.stack(A_seq, axis=-1)
                 P_seq = torch.stack(P_seq, axis=-1)
                 S_seq = torch.stack(S_seq, axis=-1)
@@ -76,28 +64,28 @@ def train_fn(
     return plot_loss_train
 
 
-def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
+def valid_fn(valid_dl, model, loss_weight, remove_ground,
+             t_start, epoch, plot_gif=True):
 
     model.eval()
     plot_loss_valid = []  # 0.0
     n_batches = len(valid_dl)
-    TA = True  # model.do_time_aligned
     with torch.no_grad():
         for batch_idx, (images, S_lbls) in enumerate(valid_dl):
             batch_loss_valid = 0.0
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
             n_frames = images.shape[-1]
-            for t in range(TA, TA + n_frames):
-                A = images[..., t - TA].to(device='cuda')
-                S_lbl = S_lbls[..., t - TA].to(device='cuda')
-                E, P, S = model(A, t - TA)                
+            for t in range(n_frames):
+                A = images[..., t].to(device='cuda')
+                S_lbl = S_lbls[..., t].to(device='cuda')
+                E, P, S = model(A, t)                
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
                 S_seq.append(S.detach().cpu())
                 S_lbl_seq.append(S_lbl.detach().cpu())
                 time_weight = float(t >= t_start)
-                loss = loss_fn(
-                    E, A, P, S, S_lbl, time_weight, loss_weight, batch_idx, n_batches)
+                loss = loss_fn(E, A, P, S, S_lbl, time_weight, loss_weight,
+                               remove_ground, batch_idx, n_batches)
                 batch_loss_valid += loss.item() / n_frames
             plot_loss_valid.append(batch_loss_valid)  # += batch_loss_valid / n_batches
             if ((epoch == 0 and (batch_idx % 10) == 0) or (batch_idx == 0)) and plot_gif:
@@ -115,7 +103,7 @@ def valid_fn(valid_dl, model, loss_weight, t_start, epoch, plot_gif=True):
     return plot_loss_valid
 
 
-def loss_fn(E, frame, P, S, S_lbl, time_weight, loss_weight, batch_idx, n_batches):
+def loss_fn(E, frame, P, S, S_lbl, time_weight, loss_weight, remove_ground, batch_idx, n_batches):
 
     # Latent prediction error loss (unsupervised)
     # with torch.no_grad():
@@ -127,6 +115,9 @@ def loss_fn(E, frame, P, S, S_lbl, time_weight, loss_weight, batch_idx, n_batche
     img_bce_loss = bce_loss_fn(P, frame) * loss_weight['prd_bce'] if loss_weight['prd_bce'] else 0.0
 
     # Localization prediction loss (supervised)
+    if remove_ground:  # ensure segmentation has background class for better loss computation (???)
+        S = torch.cat([1.0 - torch.sigmoid(S.sum(axis=1, keepdim=True)), S], axis=1)
+        S_lbl = torch.cat([1.0 - S_lbl.sum(axis=1, keepdim=True), S_lbl], axis=1)
     seg_mae_loss = mae_loss_fn(S, S_lbl) * loss_weight['seg_mae'] if loss_weight['seg_mae'] else 0.0
     seg_mse_loss = mse_loss_fn(S, S_lbl) * loss_weight['seg_dic'] if loss_weight['seg_mse'] else 0.0
     seg_bce_loss = bce_loss_fn(S, S_lbl) * loss_weight['seg_bce'] if loss_weight['seg_bce'] else 0.0

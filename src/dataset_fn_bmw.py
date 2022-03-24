@@ -12,9 +12,9 @@ DATASET_MEAN = [0.00, 0.00, 0.00]  # use this to have data between 0.0 and 1.0
 DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
-class Handover_Dataset(data.Dataset):
+class BMW_Dataset(data.Dataset):
     def __init__(self, sample_dir, label_dir, labels, categories, subfolders, n_classes, n_frames, remove_ground):
-        super(Handover_Dataset, self).__init__()
+        super(BMW_Dataset, self).__init__()
         self.sample_dir = sample_dir
         self.label_dir = label_dir
         self.labels = ['_skeleton__' + s for s in labels]
@@ -28,7 +28,7 @@ class Handover_Dataset(data.Dataset):
         transformed_images_and_labels = []
         # resize = IT.Resize(size=(120, 120), interpolation=IT.InterpolationMode.NEAREST)
         # i, j, h, w = IT.RandomCrop.get_params(image_list[0], output_size=(240, 240))
-        resize = IT.Resize(size=(300, 300), interpolation=IT.InterpolationMode.NEAREST)
+        resize = IT.Resize(size=(128, 128), interpolation=IT.InterpolationMode.NEAREST)
         normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
         for image, label_dict in zip(image_list, label_dict_list):
             # image = TF.crop(image, i, j, h, w)
@@ -52,8 +52,8 @@ class Handover_Dataset(data.Dataset):
         return len(self.subfolders)
 
     def __getitem__(self, index):
-        sample_subpath = f'cam_img_{index:05}'
-        label_subpath = f'seg_img_{index:05}'
+        sample_subpath = f'cam_img_{self.subfolders[index]:05}'
+        label_subpath = f'seg_img_{self.subfolders[index]:05}'
         image_path_list = [path for path in os.listdir(self.sample_dir) if sample_subpath in path]
         label_path_dict = {label: [path for path in os.listdir(self.label_dir) if label_subpath in path and label in path] for label in self.labels}
         n_frames = min(self.n_frames, len(image_path_list) - 1)  # - 1 or not (?)
@@ -84,7 +84,7 @@ class Handover_Dataset(data.Dataset):
         return samples, labels
 
 
-def get_handover_dataloaders(
+def get_bmw_dataloaders(
     root_dir, train_valid_ratio, batch_size_train, batch_size_valid, n_frames, augmentation, remove_ground):
   
     # Dataset info
@@ -104,12 +104,12 @@ def get_handover_dataloaders(
     n_classes = len(label_categories.keys()) + int(not remove_ground)
 
     # Training dataloader
-    train_dataset = Handover_Dataset(sample_dir, label_dir, label_names, label_categories, train_indices, n_classes, n_frames, remove_ground)
+    train_dataset = BMW_Dataset(sample_dir, label_dir, label_names, label_categories, train_indices, n_classes, n_frames, remove_ground)
     train_dataloader = data.DataLoader(
         train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True)
 
     # Validation dataloader
-    valid_dataset = Handover_Dataset(sample_dir, label_dir, label_names, label_categories, valid_indices, n_classes, n_frames, remove_ground)
+    valid_dataset = BMW_Dataset(sample_dir, label_dir, label_names, label_categories, valid_indices, n_classes, n_frames, remove_ground)
     valid_dataloader = data.DataLoader(
         valid_dataset, batch_size=batch_size_valid, shuffle=True, pin_memory=True)
 

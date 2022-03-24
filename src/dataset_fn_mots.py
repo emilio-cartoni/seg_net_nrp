@@ -35,9 +35,9 @@ class Mots_Dataset(data.Dataset):
         A list of tuples, where each tuple is a set of (image, label) for a specific timepoint.
         """
         transformed_images = []
-        resize = IT.Resize(size=(80, 256), interpolation=IT.InterpolationMode.NEAREST)
-        # resize = IT.Resize(size=(100, 320), interpolation=IT.InterpolationMode.NEAREST)
-        # resize = IT.Resize(size=(160, 512), interpolation=IT.InterpolationMode.NEAREST)
+        # resize = IT.Resize(size=(80, 256), interpolation=IT.InterpolationMode.NEAREST)
+        # resize = IT.Resize(size=(120, 384), interpolation=IT.InterpolationMode.NEAREST)
+        resize = IT.Resize(size=(160, 512), interpolation=IT.InterpolationMode.NEAREST)
         normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
         i, j, h, w = IT.RandomCrop.get_params(list_of_images[0][0], output_size=(320, 1024))
         for image, label in list_of_images:
@@ -140,7 +140,7 @@ class SQMDataset(data.Dataset):
         return samples, labels
 
 
-def get_segmentation_dataloaders_mots(
+def get_mots_dataloaders(
     root_dir, train_valid_ratio, batch_size_train, batch_size_valid, n_frames, augmentation, n_classes, remove_ground):
   
     # Data train valid
@@ -171,7 +171,7 @@ def get_segmentation_dataloaders_mots(
     return train_dataloader, valid_dataloader
 
 
-def get_SQM_dataloaders(root_dir, n_classes, remove_ground):
+def get_sqm_dataloaders(root_dir, n_classes, remove_ground):
     testing_folders = os.listdir(os.path.join(root_dir, 'testing'))
     testing_subfolders = [folder for folder in testing_folders]
 

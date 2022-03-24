@@ -48,7 +48,7 @@ class hConvGRUCell(nn.Module):
             nn.init.constant_(bn.weight, 0.1)
 
     def forward(self, input_, state):  # , time=0):
-
+        
         if self.input_size != self.hidden_size:
             input_ = self.input_gate(input_)
         if torch.sum(state) == 0.0:  # if time == 0:
