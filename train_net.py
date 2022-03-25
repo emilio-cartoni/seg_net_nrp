@@ -21,6 +21,7 @@ bu_channels = (64, 128, 256, 512)[:n_layers]
 td_channels = (64, 128, 256, 512)[:n_layers]
 td_layers = ('H', 'H', 'H', 'H')[:n_layers]  # 'Hgru', 'Illusory', 'Lstm', 'Conv'
 dropout_rates = (0.0, 0.0, 0.0, 0.0)[:n_layers]
+device = 'cpu'  # 'cuda', 'cpu'
 
 # Training parameters
 n_epochs_run, n_epochs_save, epoch_to_load = 1000, 5, None
@@ -93,30 +94,38 @@ elif dataset_type in ['handover', 'multi_objects', 'multi_objects_background', '
 # Load the model
 if not load_model:
     print(f'\nCreating model: {model_name}')
-    # model = PredNet(model_name, n_classes, n_layers, prd_layers, seg_layers,
-    #                 bu_channels, td_channels, td_layers, dropout_rates,
-    #                 do_untouched_bu, do_time_aligned, do_prediction, do_segmentation)
-    model = PredNet(model_name, n_classes, n_layers, seg_layers, bu_channels, td_channels, do_segmentation)
+    model = PredNet(model_name,
+                    n_classes,
+                    n_layers,
+                    seg_layers,
+                    bu_channels,
+                    td_channels,
+                    do_segmentation,
+                    device)
     train_losses, valid_losses, last_epoch = [], [], 0
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas)
     if scheduler_type == 'multistep':
+        milestones=range(lr_decay_time,10 * (n_epochs_run + 1), lr_decay_time)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                         milestones=range(lr_decay_time,
-                                                                          10 * (n_epochs_run + 1),
-                                                                          lr_decay_time),
-                                                         gamma=lr_decay_rate)
+                                                         milestones,
+                                                         lr_decay_rate)
     elif scheduler_type == 'cosannealwarmuprestart':
         scheduler = CosineAnnealingWarmupRestarts(optimizer,
                                                   first_cycle_steps=first_cycle_steps,
-                                                  cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
-                                                  warmup_steps=warmup_steps, gamma=gamma)
+                                                  cycle_mult=cycle_mult,
+                                                  max_lr=max_lr,
+                                                  min_lr=min_lr,
+                                                  warmup_steps=warmup_steps,
+                                                  gamma=gamma)
     train_losses, valid_losses = [], []
 else:
     print(f'\nLoading model: {model_name}')
     lr_params = [scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas,
                  first_cycle_steps, cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas]
-    model, optimizer, scheduler, train_losses, valid_losses = PredNet.load_model(model_name, lr_params,
-                                                                                 n_epochs_run, epoch_to_load)
+    model, optimizer, scheduler, train_losses, valid_losses = PredNet.load_model(model_name,
+                                                                                 n_epochs_run,
+                                                                                 epoch_to_load,
+                                                                                 lr_params)
     last_epoch = scheduler.last_epoch
 
 # Train the network

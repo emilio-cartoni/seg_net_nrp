@@ -10,7 +10,7 @@ from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 class PredNet(nn.Module):
     def __init__(self, model_name, n_classes, n_layers, seg_layers,
-                 bu_channels, td_channels, do_segmentation) -> None:
+                 bu_channels, td_channels, do_segmentation, device) -> None:
         super(PredNet, self).__init__()
 
         # Model parameters
@@ -23,6 +23,7 @@ class PredNet(nn.Module):
         self.bu_channels = bu_channels
         self.td_channels = td_channels
         self.do_segmentation = do_segmentation
+        self.device = device
         
         # Model states
         self.E_state = [None for _ in range(n_layers)]
@@ -54,7 +55,7 @@ class PredNet(nn.Module):
             self.seg_decoder = Decoder_2D(seg_layers, input_channels, n_classes, nn.Sigmoid())
 
         # Put model on gpu and create folder for the model
-        self.to('cuda')
+        self.to(device)
         os.makedirs(f'./ckpt/{model_name}/', exist_ok=True)
 
     def forward(self, A, frame_idx):
@@ -64,8 +65,8 @@ class PredNet(nn.Module):
         E_pile, R_pile = [None] * self.n_layers, [None] * self.n_layers
         if frame_idx == 0:
             for l in range(self.n_layers):
-                self.E_state[l] = torch.zeros(batch_size, 2 * self.bu_channels[l], h, w).cuda()
-                self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).cuda()
+                self.E_state[l] = torch.zeros(batch_size, 2 * self.bu_channels[l], h, w).to(self.device)
+                self.R_state[l] = torch.zeros(batch_size, self.td_channels[l], h, w).to(self.device)
                 h, w = h // 2, w // 2
 
         # Bottom-up pass
@@ -92,7 +93,7 @@ class PredNet(nn.Module):
             img_segmentation = self.seg_decoder(R_pile)  # E_pile
         else:
             segm_dims = (batch_size, self.n_classes) + batch_dims[2:]
-            img_segmentation = torch.zeros(segm_dims).cuda()
+            img_segmentation = torch.zeros(segm_dims).to(self.device)
             
         # Update the states of the network
         self.E_state = E_pile
@@ -111,6 +112,7 @@ class PredNet(nn.Module):
             'bu_channels': self.bu_channels,
             'td_channels': self.td_channels,
             'do_segmentation': self.do_segmentation,
+            'device': self.device,
             'model_params': self.state_dict(),
             'optimizer_params': optimizer.state_dict(),
             'scheduler_params': scheduler.state_dict(),
@@ -129,7 +131,7 @@ class PredNet(nn.Module):
         plt.close()
 
     @classmethod
-    def load_model(cls, model_name, lr_params, n_epochs_run, epoch_to_load=None):
+    def load_model(cls, model_name, n_epochs_run=None, epoch_to_load=None, lr_params=None):
         ckpt_dir = f'./ckpt/{model_name}/'
         list_dir = [c for c in os.listdir(ckpt_dir) if '.pt' in c]
         ckpt_path = list_dir[-1]  # take last checkpoint (default)
@@ -144,25 +146,29 @@ class PredNet(nn.Module):
             seg_layers=save['seg_layers'],
             bu_channels=save['bu_channels'],
             td_channels=save['td_channels'],
-            do_segmentation=save['do_segmentation'])
+            do_segmentation=save['do_segmentation'],
+            device=save['device'])
         model.load_state_dict(save['model_params'])
-        scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas, first_cycle_steps,\
-            cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas = lr_params
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas)
-        if scheduler_type == 'multistep':    
-            scheduler = torch.optim.lr_scheduler.MultiStepLR(
-                optimizer,
-                range(lr_decay_time, (n_epochs_run + 1) * 10, lr_decay_time),
-                gamma=lr_decay_rate)
-        elif scheduler_type == 'cosannealwarmuprestart':
-            scheduler = CosineAnnealingWarmupRestarts(
-                optimizer, first_cycle_steps=first_cycle_steps,
-                cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
-                warmup_steps=warmup_steps, gamma=gamma)
-        optimizer.load_state_dict(save['optimizer_params'])
-        scheduler.load_state_dict(save['scheduler_params'])
         valid_losses = save['valid_losses']
         train_losses = save['train_losses']
+        if lr_params is not None:
+            scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas, first_cycle_steps,\
+                cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas = lr_params
+            optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas)
+            if scheduler_type == 'multistep':    
+                scheduler = torch.optim.lr_scheduler.MultiStepLR(
+                    optimizer,
+                    range(lr_decay_time, (n_epochs_run + 1) * 10, lr_decay_time),
+                    gamma=lr_decay_rate)
+            elif scheduler_type == 'cosannealwarmuprestart':
+                scheduler = CosineAnnealingWarmupRestarts(
+                    optimizer, first_cycle_steps=first_cycle_steps,
+                    cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
+                    warmup_steps=warmup_steps, gamma=gamma)
+            optimizer.load_state_dict(save['optimizer_params'])
+            scheduler.load_state_dict(save['scheduler_params'])
+        else:
+            optimizer, scheduler = None, None
         return model, optimizer, scheduler, train_losses, valid_losses
 
 

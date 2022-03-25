@@ -30,8 +30,8 @@ def train_fn(train_dl, model, optimizer, loss_weight, remove_ground,
             n_frames = images.shape[-1]
             loss = 0.0
             for t in range(n_frames):
-                A = images[..., t].to(device='cuda')
-                S_lbl = S_lbls[..., t].to(device='cuda')               
+                A = images[..., t].to(device=model.device)
+                S_lbl = S_lbls[..., t].to(device=model.device)
                 E, P, S = model(A, t)
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
@@ -76,8 +76,8 @@ def valid_fn(valid_dl, model, loss_weight, remove_ground,
             A_seq, P_seq, S_seq, S_lbl_seq = [], [], [], []
             n_frames = images.shape[-1]
             for t in range(n_frames):
-                A = images[..., t].to(device='cuda')
-                S_lbl = S_lbls[..., t].to(device='cuda')
+                A = images[..., t].to(device=model.device)
+                S_lbl = S_lbls[..., t].to(device=model.device)
                 E, P, S = model(A, t)                
                 A_seq.append(A.detach().cpu())
                 P_seq.append(P.detach().cpu())
