@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 def plot_recons(P_seq, P_seq_true, S_seq, S_seq_true, rect_width=10):
-    '''Plot reconstruction of image and segmentation mask.'''
+    ''' Plot reconstruction of image and segmentation mask. '''
     N, C, H, W, T = P_seq.shape
     P_seq = P_seq.cpu()
     P_seq_true = P_seq_true.cpu()
@@ -44,7 +44,7 @@ def hsv_to_rgb(hue):
     return hsv_space[int(hue * 6)]
 
 
-def select_scheduler(optimizer, scheduler_type, lr, n_batches, epochs):
+def select_scheduler(optimizer, scheduler_type, lr, num_epochs, num_batches):
     lr_params = {
         'multistep': {
             'milestones': range(5, 10000, 5),
@@ -58,8 +58,8 @@ def select_scheduler(optimizer, scheduler_type, lr, n_batches, epochs):
             'gamma': 1.0},
         'onecycle': {
             'max_lr': lr,
-            'steps_per_epoch': n_batches,
-            'epochs': epochs + 1},
+            'steps_per_epoch': num_batches,
+            'epochs': num_epochs + 1},
         'exp':{'gamma': 1.2}}
     if scheduler_type == 'multistep':
         return torch.optim.lr_scheduler.MultiStepLR(

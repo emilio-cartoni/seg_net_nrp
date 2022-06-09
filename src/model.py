@@ -10,24 +10,25 @@ class PredNet(nn.Module):
         ''' Create a PredNet model, initialize its states, create a checkpoint
             folder and put the model on the correct device (cpu or gpu).
         
-            Args:
-            -----
-            device : torch.device
-                Device on which the model will be trained (cpu or gpu).
-            num_classes : int
-                Number of classes in the segmentation masks to predict.
-            rnn_type : str
-                Type of the recurrent cells used in the model.
-            axon_delay : bool
-                Whether or not to use axonal delays in the model.
-            pred_loss: bool
-                Whether or not to minimize prediction error in the model.
-            seg_layers : list of str
-                What td_layers are used by the segmentation decoder.
-            bu_channels : list of int
-                Number of channels in the bottom-up layers.
-            td_channels : list of int
-                Number of channels in the top-down layers.
+        Args:
+        -----
+        device : torch.device
+            Device on which the model will be trained (cpu or gpu).
+        num_classes : int
+            Number of classes in the segmentation masks to predict.
+        rnn_type : str
+            Type of the recurrent cells used in the model.
+        axon_delay : bool
+            Whether or not to use axonal delays in the model.
+        pred_loss: bool
+            Whether or not to minimize prediction error in the model.
+        seg_layers : list of str
+            What td_layers are used by the segmentation decoder.
+        bu_channels : list of int
+            Number of channels in the bottom-up layers.
+        td_channels : list of int
+            Number of channels in the top-down layers.
+
         '''
         super(PredNet, self).__init__()
 
@@ -105,21 +106,22 @@ class PredNet(nn.Module):
     def forward(self, A, frame_idx):
         ''' Forward pass of the PredNet.
         
-        Parameters
-        ----------
+        Args:
+        -----
         A : torch.Tensor
             Input image (from a batch of input sequences).
         frame_idx : int
             Index of the current frame in the sequence.
 
-        Returns
-        -------
+        Returns:
+        --------
         E_pile : list of torch.Tensor
             Activity of all errors units (bottom-up pass).
         img_prediction : torch.Tensor
             Prediction of the next frame input (first layer of the network).
         seg_prediction : torch.Tensor
             Prediction of the segmentation mask (if do_segmentation is True).
+
         '''
         # Initialize outputs of this step, as well as internal states, if necessary
         batch_dims = A.size()
@@ -196,8 +198,8 @@ class Decoder_2D(nn.Module):
         ''' Decoder for any set of 2D images (e.g., segmentation masks).
             Combines different pooling levels like in Long et al. (2015).
         
-        Parameters
-        ----------
+        Args:
+        -----
         decoder_layers : list of int
             Layers of PredNet from which the 2D labels are decoded.
         input_channels : list of int
@@ -207,9 +209,6 @@ class Decoder_2D(nn.Module):
         output_fn : str
             Activation function of the decoder.
 
-        Returns
-        -------
-        None
         '''
         super(Decoder_2D, self).__init__()
         self.decoder_layers = decoder_layers
@@ -239,17 +238,18 @@ class Decoder_2D(nn.Module):
         ''' Forward pass of the decoder.
             Combines different pooling levels like in Long et al. (2015)
         
-        Parameters
-        ----------
+        Args:
+        -----
         R_pile : list of torch.Tensor
             List of tensors of shape (batch_size, channels, height, width)
             containing the activity of the latent units of the PredNet.
 
-        Returns
-        -------
+        Returns:
+        --------
         torch.Tensor
             Tensor of shape (batch_size, channels, height, width)
             containing the decoded output.
+
         '''
         D = R_pile[max(self.decoder_layers)]
         D = self.decoder_upsp[-1](D) if max(self.decoder_layers) > 0 else self.decoder_conv(D)
