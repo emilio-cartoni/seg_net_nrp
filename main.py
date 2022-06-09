@@ -17,7 +17,7 @@ flags.DEFINE_integer('num_workers', 4, 'Number of workers for dataloader')
 flags.DEFINE_integer('num_classes', 5, 'Number of classes to segment')
 flags.DEFINE_integer('num_frames', 10, 'Number of frames in each sequence')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
-flags.DEFINE_string('log_dir', 'logs', 'Path to log directory (e.g., for checkpoints)')
+flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
 flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp/handover', 'Data directory')
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
 flags.DEFINE_float('lr', 5e-4, 'Learning rate')
@@ -49,8 +49,7 @@ class PLPredNet(pl.LightningModule):
 
         '''
         super().__init__()
-        # Select fair number of channels for each combination
-        channels = define_fair_channels()
+        channels = compute_fair_number_of_channels()
         if FLAGS.pred_loss:
             seg_layers = tuple(range(len(channels))[1:])
         else:
@@ -106,10 +105,9 @@ class PLPredNet(pl.LightningModule):
 
         '''
         E_seq, P_seq, S_seq = [], [], []
-        TA = self.model.axon_delay
-        for t in range(TA, TA + FLAGS.num_frames):
-            input_image = input_sequence[..., t - TA]
-            E, P, S = self.model(input_image, t - TA)
+        for t in range(FLAGS.num_frames):
+            input_image = input_sequence[..., t]
+            E, P, S = self.model(input_image, t)
             E_seq.append(E); P_seq.append(P); S_seq.append(S)
         return E_seq, P_seq, S_seq
             
@@ -201,7 +199,7 @@ class PLPredNet(pl.LightningModule):
         return [optimizer], [scheduler]
     
 
-def define_fair_channels():
+def compute_fair_number_of_channels():
     ''' Define the layers of the PredNet
         so that any combination has the same number of parameters
     
@@ -241,17 +239,17 @@ def generate_ckpt_path(model_name, model_version):
     '''
     if FLAGS.load_model:
         try:
-            ckpt_dir = os.path.join(FLAGS.log_dir,
+            ckpt_dir = os.path.join(FLAGS.logs_dir,
                                     model_name,
                                     f'version_{model_version}',
                                     'checkpoints')
             ckpt_path = os.path.join(ckpt_dir,
                                      os.listdir(ckpt_dir)[-1])
         except FileNotFoundError:
-            os.makedirs(FLAGS.log_dir, exist_ok=True)
+            os.makedirs(FLAGS.logs_dir, exist_ok=True)
             ckpt_path = None
     else:
-        os.makedirs(FLAGS.log_dir, exist_ok=True)
+        os.makedirs(FLAGS.logs_dir, exist_ok=True)
         ckpt_path = None
     return ckpt_path
 
@@ -269,13 +267,13 @@ def train_one_net(model_version):
     model_name = f'Prednet_L-{FLAGS.n_layers}_R-{FLAGS.rnn_type}'\
                + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}'
     model = PLPredNet(device)
-    trainer = pl.Trainer(default_root_dir=FLAGS.log_dir,
+    trainer = pl.Trainer(default_root_dir=FLAGS.logs_dir,
                          gpus=(1 if device=='cuda' else 0),
                          max_epochs=FLAGS.num_epochs,
                          fast_dev_run=FLAGS.debug,
                          log_every_n_steps=5,
                          logger=pl.loggers.TensorBoardLogger(
-                             save_dir=FLAGS.log_dir,
+                             save_dir=FLAGS.logs_dir,
                              name=model_name,
                              version=model_version))
     ckpt_path = generate_ckpt_path(model_name, model_version)

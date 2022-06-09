@@ -2,10 +2,10 @@
 
 echo 'Reset checkpoint data (delete ./logs folder)? (y/n)'
 read delete_logs
-if [ $delete_logs == 'y' || $delte_logs == 'Y' ]; then
+if [ $delete_logs == 'y' ] || [ $delete_logs == 'Y' ]; then
     echo 'Deleting checkpoint data.'
     rm -rf ./logs
-elif [ $delete_logs == 'y' || $delte_logs == 'Y' ]; then
+elif [ $delete_logs == 'n' ] || [ $delete_logs == 'N' ]; then
     echo 'No checkoint data will be deleted.'
 else 
     echo 'Invalid input. Aborting.'

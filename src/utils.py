@@ -58,7 +58,7 @@ def select_scheduler(optimizer, scheduler_type, lr, num_epochs, num_batches):
             'gamma': 1.0},
         'onecycle': {
             'max_lr': lr,
-            'steps_per_epoch': num_batches,
+            'steps_per_epoch': num_batches + 1,
             'epochs': num_epochs + 1},
         'exp':{'gamma': 1.2}}
     if scheduler_type == 'multistep':
