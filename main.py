@@ -62,23 +62,6 @@ class PLPredNet(pl.LightningModule):
                              seg_layers=seg_layers,
                              bu_channels=(3,) + channels[:-1],
                              td_channels=channels)
-        self.train_dl = handover_dl(mode='train',
-                                    data_dir=FLAGS.data_dir,
-                                    batch_size=FLAGS.batch_size,
-                                    num_frames=FLAGS.num_frames,
-                                    num_classes=FLAGS.num_classes,
-                                    shuffle=True,
-                                    drop_last=True,
-                                    num_workers=FLAGS.num_workers)
-        self.val_dl = handover_dl(mode='valid',
-                                  data_dir=FLAGS.data_dir,
-                                  batch_size=FLAGS.batch_size,
-                                  num_frames=FLAGS.num_frames,
-                                  num_classes=FLAGS.num_classes,
-                                  shuffle=False,
-                                  drop_last=True,
-                                  num_workers=FLAGS.num_workers)
-        self.num_training_batches = len(self.train_dl)
         self.loss_fn = loss_fn
 
     def prepare_data(self):
@@ -182,20 +165,35 @@ class PLPredNet(pl.LightningModule):
 
     def train_dataloader(self):
         ''' Training dataloader '''
-        return self.train_dl
+        return handover_dl(mode='train',
+                           data_dir=FLAGS.data_dir,
+                           batch_size=FLAGS.batch_size,
+                           num_frames=FLAGS.num_frames,
+                           num_classes=FLAGS.num_classes,
+                           shuffle=True,
+                           drop_last=True,
+                           num_workers=FLAGS.num_workers)
 
     def val_dataloader(self):
         ''' Validation dataloader '''
-        return self.val_dl
+        return handover_dl(mode='valid',
+                           data_dir=FLAGS.data_dir,
+                           batch_size=FLAGS.batch_size,
+                           num_frames=FLAGS.num_frames,
+                           num_classes=FLAGS.num_classes,
+                           shuffle=False,
+                           drop_last=True,
+                           num_workers=FLAGS.num_workers)
     
     def configure_optimizers(self):
         ''' Define the optimizer and  the learning rate scheduler '''
+        num_batches = len(self.train_dataloader())
         optimizer = torch.optim.Adam(self.parameters(), lr=FLAGS.lr)
         scheduler = select_scheduler(optimizer,
                                      scheduler_type=FLAGS.scheduler_type,
                                      lr=FLAGS.lr,
                                      num_epochs=FLAGS.num_epochs,
-                                     num_batches=self.num_training_batches)
+                                     num_batches=num_batches)
         return [optimizer], [scheduler]
     
 
