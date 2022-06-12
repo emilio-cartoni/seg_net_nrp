@@ -9,10 +9,11 @@ from src.utils import plot_recons, select_scheduler
 from src.dataset_fn_handover import handover_dl
 
 
-flags.DEFINE_boolean('debug', False, 'Debug mode')
+flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
+flags.DEFINE_boolean('profiler', False, 'Whether to run a profiler training run')
 flags.DEFINE_boolean('load_model', False, 'Load model last checkpoint (if available)')
 flags.DEFINE_integer('batch_size', 4, 'Batch size')
-flags.DEFINE_integer('num_epochs', 20, 'Number of epochs to train')
+flags.DEFINE_integer('num_epochs', 30, 'Number of epochs to train')
 flags.DEFINE_integer('num_workers', 4, 'Number of workers for dataloader')
 flags.DEFINE_integer('num_classes', 5, 'Number of classes to segment')
 flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropagation')
@@ -21,7 +22,7 @@ flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each mo
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
 flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp/handover', 'Data directory')
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
-flags.DEFINE_float('lr', 5e-3, 'Learning rate')
+flags.DEFINE_float('lr', 1e-2, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
 flags.DEFINE_string('rnn_type', 'hgru', 'Type of the recurrent cells used')
 flags.DEFINE_boolean('axon_delay', True, 'Whether to use axonal delays or not')
@@ -39,14 +40,6 @@ class PLPredNet(pl.LightningModule):
         -----
         device: torch.device
             Device to use for the model ('cpu', 'cuda')
-        n_layers: int
-            Number of layers in the model
-        rnn_type: str
-            Type of recurrent cell used ('conv', 'lstm', 'hgru')
-        axon_delay: bool
-            Whether to include axonal delays or not
-        pred_loss: bool
-            Whether or not to minimize prediction error
 
         '''
         super().__init__()
@@ -181,8 +174,8 @@ class PLPredNet(pl.LightningModule):
 
         Args:
         -----
-        train: bool
-            Whether to load the training or validation dataset
+        mode: str
+            Dataloader mode ('train' or 'valid')            
 
         Returns:
         --------
@@ -211,7 +204,7 @@ class PLPredNet(pl.LightningModule):
         return self.dataloader(mode='valid')
         
     def configure_optimizers(self):
-        ''' Define the optimizer and  the learning rate scheduler '''
+        ''' Define the optimizer and the learning rate scheduler '''
         num_batches = len(self.train_dataloader())
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         scheduler = select_scheduler(optimizer,
@@ -294,6 +287,7 @@ def train_one_net(model_version):
                          gpus=(1 if device=='cuda' else 0),
                          max_epochs=FLAGS.num_epochs,
                          fast_dev_run=FLAGS.debug,
+                         profiler='simple' if FLAGS.profiler else None,
                          log_every_n_steps=5,
                          logger=pl.loggers.TensorBoardLogger(
                              save_dir=FLAGS.logs_dir,
@@ -307,7 +301,6 @@ def main(_):
     ''' Run the training procedure for a PredNet model '''
     pl.seed_everything(4, workers=True)
     for model_version in range(FLAGS.num_versions):
-        torch.cuda.empty_cache()  # make sure available memory is freed (?)
         train_one_net(model_version)
 
 
