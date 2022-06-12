@@ -155,25 +155,27 @@ def loss_fn(E_seq, S_seq, S_seq_true, pred_flag=True, val_flag=False):
     '''
 
     n_frames = S_seq_true.shape[-1]
+    device = S_seq_true.device
     S_seq_true = [S_seq_true[..., t] for t in range(n_frames)]
-    time_weight = [1.0 / t if t > 0 else 0.0 for t in range(n_frames)]
-    total_loss = 0.0
+    time_weight = [1.0 if t > 0 else 0.0 for t in range(n_frames)]
+    total_loss = torch.tensor(0.0, device=device)
     for t, (E, S, S_true) in enumerate(zip(E_seq, S_seq, S_seq_true)):
 
         # Sum of prediction error signals (self-supervised)
         # E[0] is next frame prediction error
         pred_loss = 0.0 if E is None else sum([torch.mean(e) for e in E])
-
+        
         # Segmentation prediction loss (supervised)
-        S = torch.cat([1.0 - torch.sigmoid(S.sum(axis=1, keepdim=True)), S], axis=1)
-        S_true = torch.cat([1.0 - S_true.sum(axis=1, keepdim=True), S_true], axis=1)
         seg_loss = dic_loss_fn(S, S_true)  # + foc_loss_fn(S, S_true)
 
-        # Total loss
-        frame_loss = (seg_loss if seg_loss > 0 else 0.0)
+        # Do not account for prediction error in validation mode
         if pred_flag and not val_flag:
-            frame_loss = frame_loss + pred_loss
+            frame_loss = seg_loss + pred_loss
+        else:
+            frame_loss = seg_loss  # (seg_loss if seg_loss > 0 else 0.0)
+        
+        # Weight loss differently for each frame
         if (val_flag and t > 5) or (not val_flag and t > 0):
             total_loss = total_loss + frame_loss * time_weight[t]
-    
+
     return total_loss / n_frames

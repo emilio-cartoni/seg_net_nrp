@@ -12,19 +12,20 @@ from src.dataset_fn_handover import handover_dl
 flags.DEFINE_boolean('debug', False, 'Debug mode')
 flags.DEFINE_boolean('load_model', False, 'Load model last checkpoint (if available)')
 flags.DEFINE_integer('batch_size', 4, 'Batch size')
-flags.DEFINE_integer('num_epochs', 50, 'Number of epochs to train')
+flags.DEFINE_integer('num_epochs', 20, 'Number of epochs to train')
 flags.DEFINE_integer('num_workers', 4, 'Number of workers for dataloader')
 flags.DEFINE_integer('num_classes', 5, 'Number of classes to segment')
-flags.DEFINE_integer('num_frames', 10, 'Number of frames in each sequence')
+flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropagation')
+flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
 flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp/handover', 'Data directory')
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
-flags.DEFINE_float('lr', 5e-4, 'Learning rate')
+flags.DEFINE_float('lr', 5e-3, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
 flags.DEFINE_string('rnn_type', 'hgru', 'Type of the recurrent cells used')
 flags.DEFINE_boolean('axon_delay', True, 'Whether to use axonal delays or not')
-flags.DEFINE_boolean('pred_loss', False, 'Whether to minimize prediction error')
+flags.DEFINE_boolean('pred_loss', True, 'Whether to minimize prediction error')
 FLAGS = flags.FLAGS
 
 
@@ -63,6 +64,7 @@ class PLPredNet(pl.LightningModule):
                              bu_channels=(3,) + channels[:-1],
                              td_channels=channels)
         self.loss_fn = loss_fn
+        self.lr = FLAGS.lr
 
     def prepare_data(self):
         # TODO: this could include the generation of the h5 files
@@ -88,7 +90,8 @@ class PLPredNet(pl.LightningModule):
 
         '''
         E_seq, P_seq, S_seq = [], [], []
-        for t in range(FLAGS.num_frames):
+        num_frames = input_sequence.shape[-1]
+        for t in range(num_frames):
             input_image = input_sequence[..., t]
             E, P, S = self.model(input_image, t)
             E_seq.append(E); P_seq.append(P); S_seq.append(S)
@@ -110,16 +113,26 @@ class PLPredNet(pl.LightningModule):
             Dictionary containing the loss
 
         '''
-        E_seq, _, S_seq = self.forward(batch['samples'])
-        S_seq_true = batch['labels']
+        I_seq, S_seq_true = batch['samples'], batch['labels']
+        E_seq, _, S_seq = self.forward(I_seq)
         loss = self.loss_fn(E_seq,
                             S_seq,
                             S_seq_true,
                             pred_flag=FLAGS.pred_loss)
         if FLAGS.scheduler_type == 'onecycle' or batch_idx == 0:
             self.lr_schedulers().step()
-        self.log('train_loss', loss.cpu().detach())
         return {'loss': loss}
+    
+    def training_step_end(self, outputs):
+        ''' Instructions run at the end of every training epoch
+            
+        Args:
+        -----
+        outputs: list of dict
+            List of dictionaries containing the loss and prediction
+
+        '''
+        self.log('train_loss', outputs['loss'].cpu().detach())
 
     def validation_step(self, batch, batch_idx):
         ''' Validation step of the model
@@ -137,12 +150,12 @@ class PLPredNet(pl.LightningModule):
             Dictionary containing the loss and prediction
 
         '''
+        I_seq, S_seq_true = batch['samples'], batch['labels']
         E_seq, P_seq, S_seq = self.forward(batch['samples'])
-        P_seq_true, S_seq_true = batch['samples'], batch['labels']
         loss = self.loss_fn(E_seq, S_seq, S_seq_true, val_flag=True)
         self.log('valid_loss', loss.cpu())
         sequences = {'P_seq': torch.stack(P_seq, dim=-1),
-                     'P_seq_true': P_seq_true,
+                     'P_seq_true': I_seq,
                      'S_seq': torch.stack(S_seq, dim=-1),
                      'S_seq_true': S_seq_true}
         return {'loss': loss, 'sequences': sequences}
@@ -162,36 +175,48 @@ class PLPredNet(pl.LightningModule):
                          vid_tensor=plot_recons(**sequences),
                          global_step=self.global_step,
                          fps=12)
+    
+    def dataloader(self, mode):
+        ''' Dataloader for the model
+
+        Args:
+        -----
+        train: bool
+            Whether to load the training or validation dataset
+
+        Returns:
+        --------
+        dataloader: torch.utils.data.DataLoader
+            Dataloader for the dataset
+            
+        '''
+        if mode == 'train':
+            num_frames = FLAGS.num_frames_train
+        else:
+            num_frames = FLAGS.num_frames_valid
+        return handover_dl(mode=mode,
+                           data_dir=FLAGS.data_dir,
+                           batch_size=FLAGS.batch_size,
+                           num_frames=num_frames,
+                           num_classes=FLAGS.num_classes,
+                           drop_last=True,
+                           num_workers=FLAGS.num_workers)
 
     def train_dataloader(self):
         ''' Training dataloader '''
-        return handover_dl(mode='train',
-                           data_dir=FLAGS.data_dir,
-                           batch_size=FLAGS.batch_size,
-                           num_frames=FLAGS.num_frames,
-                           num_classes=FLAGS.num_classes,
-                           shuffle=True,
-                           drop_last=True,
-                           num_workers=FLAGS.num_workers)
+        return self.dataloader(mode='train')
 
     def val_dataloader(self):
         ''' Validation dataloader '''
-        return handover_dl(mode='valid',
-                           data_dir=FLAGS.data_dir,
-                           batch_size=FLAGS.batch_size,
-                           num_frames=FLAGS.num_frames,
-                           num_classes=FLAGS.num_classes,
-                           shuffle=False,
-                           drop_last=True,
-                           num_workers=FLAGS.num_workers)
-    
+        return self.dataloader(mode='valid')
+        
     def configure_optimizers(self):
         ''' Define the optimizer and  the learning rate scheduler '''
         num_batches = len(self.train_dataloader())
-        optimizer = torch.optim.Adam(self.parameters(), lr=FLAGS.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         scheduler = select_scheduler(optimizer,
                                      scheduler_type=FLAGS.scheduler_type,
-                                     lr=FLAGS.lr,
+                                     lr=self.lr,
                                      num_epochs=FLAGS.num_epochs,
                                      num_batches=num_batches)
         return [optimizer], [scheduler]

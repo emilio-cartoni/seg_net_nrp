@@ -102,16 +102,33 @@ class PredNet(nn.Module):
                                           input_channels,
                                           self.n_classes,
                                           nn.Sigmoid())
+    
+    def init_states(self, batch_size, h, w, t):
 
-    def forward(self, A, frame_idx):
+        # Initialize model states at start or during batch size change
+        if self.E_state[0] is None or self.E_state[0].shape[0] != batch_size:
+            for l in range(self.n_layers):
+                e_channels = (2 if self.pred_loss else 1) * self.bu_channels[l]
+                E_state_shape = (batch_size, e_channels, h, w)
+                R_state_shape = (batch_size, self.td_channels[l], h, w)
+                self.E_state[l] = torch.zeros(*E_state_shape).to(self.device)
+                self.R_state[l] = torch.zeros(*R_state_shape).to(self.device)
+                if self.rnn_type == 'lstm':
+                    self.R_state[l] = torch.zeros(R_state_shape).to(self.device)
+                h, w = h // 2, w // 2
+
+        # Cut gradient computation for the states when kept between batches
+        elif t == 0:
+            self.E_state = [s.detach() if s is not None else s for s in self.E_state]
+            self.R_state = [s.detach() if s is not None else s for s in self.R_state]
+                
+    def forward(self, A, t):
         ''' Forward pass of the PredNet.
         
         Args:
         -----
         A : torch.Tensor
             Input image (from a batch of input sequences).
-        frame_idx : int
-            Index of the current frame in the sequence.
 
         Returns:
         --------
@@ -129,20 +146,7 @@ class PredNet(nn.Module):
         E_pile, R_pile = [None] * self.n_layers, [None] * self.n_layers
         if self.rnn_type == 'lstm':
             L_pile = [None] * self.n_layers
-        if frame_idx == 0:
-            for l in range(self.n_layers):
-                e_channels = (2 if self.pred_loss else 1) * self.bu_channels[l]
-                self.E_state[l] = torch.zeros(batch_size,
-                                              e_channels,
-                                              h, w).to(self.device)
-                self.R_state[l] = torch.zeros(batch_size,
-                                              self.td_channels[l],
-                                              h, w).to(self.device)
-                if self.rnn_type == 'lstm':
-                    self.R_state[l] = torch.zeros(batch_size,
-                                                  self.td_channels[l],
-                                                  h, w).to(self.device)
-                h, w = h // 2, w // 2
+        self.init_states(batch_size, h, w, t)
 
         # Bottom-up pass
         for l in range(self.n_layers):

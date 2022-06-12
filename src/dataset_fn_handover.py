@@ -155,8 +155,8 @@ class Handover_Dataset(data.Dataset):
         return {'samples': samples, 'labels': labels}
 
 
-def handover_dl(mode, data_dir, batch_size, num_frames, num_classes,
-                shuffle, drop_last, num_workers, remove_ground=True):
+def handover_dl(mode, data_dir, batch_size, num_frames,
+                num_classes, drop_last, num_workers, remove_ground=True):
     ''' Get the dataloaders for the BMW dataset.
     
     Parameters
@@ -191,6 +191,7 @@ def handover_dl(mode, data_dir, batch_size, num_frames, num_classes,
     # Dataset info
     data_path = os.path.join(data_dir, f'{mode}.hdf5')
     augmentation = (mode == 'train')
+    shuffle = (mode == 'train')
     
     # Build dataset class
     dataset = Handover_Dataset(data_path,
