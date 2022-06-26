@@ -21,7 +21,8 @@ flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropag
 flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
-flags.DEFINE_string('data_type', 'rob', 'Data directory')  # 'rob', 'no_rob', 'handover'
+flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp', 'Path to main data directory')
+flags.DEFINE_string('data_type', 'rob', 'Type of dataset used')  # 'rob', 'no_rob', 'handover'
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
 flags.DEFINE_float('lr', 1e-2, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
@@ -195,8 +196,7 @@ class PLPredNet(pl.LightningModule):
             num_frames = FLAGS.num_frames_train
         else:
             num_frames = FLAGS.num_frames_valid
-        data_dir = os.path.join('/mnt/d/DL/datasets/nrp',
-                                FLAGS.data_type)
+        data_dir = os.path.join(FLAGS.data_dir, FLAGS.data_type)
         dl_fn = {'handover': handover_dl, 'rob': rob_dl}[FLAGS.data_type]
         return dl_fn(mode=mode,
                      data_dir=data_dir,
@@ -299,7 +299,7 @@ def train_one_net(model_version):
     model_name = f'Prednet_L-{FLAGS.n_layers}_R-{FLAGS.rnn_type}'\
                + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}'
     model = PLPredNet(device)
-    trainer = pl.Trainer(num_sanity_val_steps=-1,
+    trainer = pl.Trainer(num_sanity_val_steps=0,
                          default_root_dir=FLAGS.logs_dir,
                          gpus=(1 if device=='cuda' else 0),
                          max_epochs=FLAGS.num_epochs,
