@@ -5,12 +5,14 @@ import os
 import h5py
 import random
 import torch
+import numpy as np
 DATASET_MEAN = [0.00, 0.00, 0.00]  # use this to have data between 0.0 and 1.0
 DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
 class Handover_Dataset(data.Dataset):
-    def __init__(self, h5_path, n_frames, n_classes, augmentation, remove_ground):
+    def __init__(self, h5_path, load_on_ram, n_frames,
+                 n_classes, augmentation, remove_ground):
         ''' Initialize a dataset with the BMW environment (flying skeleton).
         
         Parameters
@@ -32,8 +34,12 @@ class Handover_Dataset(data.Dataset):
         '''
         super(Handover_Dataset, self).__init__()
         f = h5py.File(name=h5_path, mode='r')
-        self.samples = f['samples']  # np.array to load on ram (here not because heavy)
-        self.labels = f['labels']  # np.array to load on ram (here not because heavy)
+        if load_on_ram:
+            self.samples = np.array(f['samples'])
+            self.labels = np.array(f['labels'])
+        else:
+            self.samples = f['samples']
+            self.labels = f['labels']
         self.n_frames_max = self.samples.shape[-1]
         self.n_frames = n_frames
         self.n_classes = n_classes
@@ -155,22 +161,22 @@ class Handover_Dataset(data.Dataset):
         return {'samples': samples, 'labels': labels}
 
 
-def handover_dl(mode, data_dir, batch_size, num_frames,
-                num_classes, drop_last, num_workers, remove_ground=True):
+def handover_dl(mode, data_dir, batch_size, num_frames, num_classes,
+                drop_last, num_workers, remove_ground=True):
     ''' Get the dataloaders for the BMW dataset.
     
     Parameters
     ----------
     mode : str
         Whether to load the training or validation set.
-    data_dor : str
+    data_dir : str
         Path to the dataset.
     batch_size : int
         Batch size used in the training / validation set.
-    n_frames : int
+    num_frames : int
         Number of frames to use for each sample sequence.
-    shuffle : bool
-        Whether to shuffle the dataset.
+    num_classes : int
+        Number of classes in the segmentation dataset.
     drop_last : bool
         Whether to drop the last batch if it is not full.
     num_workers : int
@@ -180,21 +186,20 @@ def handover_dl(mode, data_dir, batch_size, num_frames,
 
     Returns
     -------
-    train_loader : torch.utils.data.DataLoader
-        Dataloader for the training set.
-    valid_loader : torch.utils.data.DataLoader
-        Dataloader for the validation set.
-    n_classes : int
-        Number of classes to segment in the dataset.
+    dataloader : torch.utils.data.DataLoader
+        Dataloader for the training or validation set.
+        
     '''
     
     # Dataset info
     data_path = os.path.join(data_dir, f'{mode}.hdf5')
     augmentation = (mode == 'train')
     shuffle = (mode == 'train')
+    load_on_ram = False  # (mode == 'train')
     
     # Build dataset class
     dataset = Handover_Dataset(data_path,
+                               load_on_ram,
                                num_frames,
                                num_classes,
                                augmentation,

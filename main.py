@@ -7,6 +7,7 @@ from src.model import PredNet
 from src.loss_fn import loss_fn
 from src.utils import plot_recons, select_scheduler
 from src.dataset_fn_handover import handover_dl
+from src.dataset_fn_rob import rob_dl
 
 
 flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
@@ -20,7 +21,7 @@ flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropag
 flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
-flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp/handover', 'Data directory')
+flags.DEFINE_string('data_type', 'rob', 'Data directory')  # 'rob', 'no_rob', 'handover'
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
 flags.DEFINE_float('lr', 1e-2, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
@@ -116,6 +117,10 @@ class PLPredNet(pl.LightningModule):
             self.lr_schedulers().step()
         return {'loss': loss}
     
+    def test_step(self, batch, batch_idx):
+        # TODO: SQM-test
+        pass
+    
     def training_step_end(self, outputs):
         ''' Instructions run at the end of every training epoch
             
@@ -146,15 +151,17 @@ class PLPredNet(pl.LightningModule):
         I_seq, S_seq_true = batch['samples'], batch['labels']
         E_seq, P_seq, S_seq = self.forward(batch['samples'])
         loss = self.loss_fn(E_seq, S_seq, S_seq_true, val_flag=True)
-        self.log('valid_loss', loss.cpu())
-        sequences = {'P_seq': torch.stack(P_seq, dim=-1),
-                     'P_seq_true': I_seq,
-                     'S_seq': torch.stack(S_seq, dim=-1),
-                     'S_seq_true': S_seq_true}
-        return {'loss': loss, 'sequences': sequences}
+        sequences = None
+        if batch_idx == 0:
+            sequences = {'P_seq': torch.stack(P_seq, dim=-1).cpu(),
+                         'P_seq_true': I_seq.cpu(),
+                         'S_seq': torch.stack(S_seq, dim=-1).cpu(),
+                         'S_seq_true': S_seq_true.cpu()}
+        return {'loss': loss.cpu(), 'sequences': sequences}
     
     def validation_epoch_end(self, outputs):
         ''' Instructions run at the end of every validation epoch
+            Log validation loss and plot prediction sequence as a gif
             
         Args:
         -----
@@ -162,6 +169,7 @@ class PLPredNet(pl.LightningModule):
             List of dictionaries containing the loss and prediction
 
         '''
+        self.log('valid_loss', outputs[0]['loss'].cpu())
         sequences = outputs[0]['sequences']
         writer = self.logger.experiment
         writer.add_video(tag='valid_reconstruction',
@@ -187,13 +195,16 @@ class PLPredNet(pl.LightningModule):
             num_frames = FLAGS.num_frames_train
         else:
             num_frames = FLAGS.num_frames_valid
-        return handover_dl(mode=mode,
-                           data_dir=FLAGS.data_dir,
-                           batch_size=FLAGS.batch_size,
-                           num_frames=num_frames,
-                           num_classes=FLAGS.num_classes,
-                           drop_last=True,
-                           num_workers=FLAGS.num_workers)
+        data_dir = os.path.join('/mnt/d/DL/datasets/nrp',
+                                FLAGS.data_type)
+        dl_fn = {'handover': handover_dl, 'rob': rob_dl}[FLAGS.data_type]
+        return dl_fn(mode=mode,
+                     data_dir=data_dir,
+                     batch_size=FLAGS.batch_size,
+                     num_frames=num_frames,
+                     num_classes=FLAGS.num_classes,
+                     drop_last=True,
+                     num_workers=FLAGS.num_workers)
 
     def train_dataloader(self):
         ''' Training dataloader '''
@@ -202,6 +213,11 @@ class PLPredNet(pl.LightningModule):
     def val_dataloader(self):
         ''' Validation dataloader '''
         return self.dataloader(mode='valid')
+    
+    def test_dataloader(self):
+        ''' Test dataloader '''
+        # TODO: use the SQM-dataloader function
+        pass
         
     def configure_optimizers(self):
         ''' Define the optimizer and the learning rate scheduler '''
@@ -216,8 +232,8 @@ class PLPredNet(pl.LightningModule):
     
 
 def compute_fair_number_of_channels():
-    ''' Define the layers of the PredNet
-        so that any combination has the same number of parameters
+    ''' Define the layers of the PredNet so that any combination of
+        meta-parameters has approximately the same number of parameters
     
     Returns:
     --------
@@ -283,12 +299,13 @@ def train_one_net(model_version):
     model_name = f'Prednet_L-{FLAGS.n_layers}_R-{FLAGS.rnn_type}'\
                + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}'
     model = PLPredNet(device)
-    trainer = pl.Trainer(default_root_dir=FLAGS.logs_dir,
+    trainer = pl.Trainer(num_sanity_val_steps=-1,
+                         default_root_dir=FLAGS.logs_dir,
                          gpus=(1 if device=='cuda' else 0),
                          max_epochs=FLAGS.num_epochs,
                          fast_dev_run=FLAGS.debug,
                          profiler='simple' if FLAGS.profiler else None,
-                         log_every_n_steps=5,
+                         log_every_n_steps=1,
                          logger=pl.loggers.TensorBoardLogger(
                              save_dir=FLAGS.logs_dir,
                              name=model_name,
@@ -299,7 +316,7 @@ def train_one_net(model_version):
 
 def main(_):
     ''' Run the training procedure for a PredNet model '''
-    pl.seed_everything(4, workers=True)
+    pl.seed_everything(1000, workers=True)
     for model_version in range(FLAGS.num_versions):
         train_one_net(model_version)
 
