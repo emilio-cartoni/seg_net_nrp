@@ -6,9 +6,8 @@ from absl import app, flags, logging
 from src.model import PredNet
 from src.loss_fn import loss_fn
 from src.utils import plot_recons, select_scheduler
-from src.dataset_fn_handover import handover_dl
 from src.dataset_fn_rob import rob_dl
-
+from src.parse_rob_datasets import parse_dataset
 
 flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
 flags.DEFINE_boolean('profiler', False, 'Whether to run a profiler training run')
@@ -22,7 +21,7 @@ flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation seq
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
 flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp', 'Path to main data directory')
-flags.DEFINE_string('data_type', 'rob', 'Type of dataset used')  # 'rob', 'no_rob', 'handover'
+flags.DEFINE_string('data_type', 'rob', 'Type of dataset used')  # 'rob', 'no_rob'
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
 flags.DEFINE_float('lr', 1e-2, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
@@ -50,8 +49,9 @@ class PLPredNet(pl.LightningModule):
             seg_layers = tuple(range(len(channels))[1:])
         else:
             seg_layers = (0,)
+        self.num_classes = {'rob': 5, 'no_rob': 4}[FLAGS.data_type]
         self.model = PredNet(device=device,
-                             num_classes=FLAGS.num_classes,
+                             num_classes=self.num_classes,
                              rnn_type=FLAGS.rnn_type,
                              axon_delay=FLAGS.axon_delay,
                              pred_loss=FLAGS.pred_loss,
@@ -62,8 +62,14 @@ class PLPredNet(pl.LightningModule):
         self.lr = FLAGS.lr
 
     def prepare_data(self):
-        # TODO: this could include the generation of the h5 files
-        pass
+        ''' Prepare the data for the model
+            Parse the segmentation images into more usable masks
+
+        '''
+        dataset_dir = os.path.join(FLAGS.data_dir, FLAGS.data_type, 'sm')
+        if not os.path.isdir(dataset_dir):
+            print('Dataset directory does not exist: creation in process.')
+            parse_dataset(FLAGS.data_dir, FLAGS.data_type)
     
     def forward(self, input_sequence):
         ''' Forward pass of the PredNet model
@@ -197,14 +203,13 @@ class PLPredNet(pl.LightningModule):
         else:
             num_frames = FLAGS.num_frames_valid
         data_dir = os.path.join(FLAGS.data_dir, FLAGS.data_type)
-        dl_fn = {'handover': handover_dl, 'rob': rob_dl}[FLAGS.data_type]
-        return dl_fn(mode=mode,
-                     data_dir=data_dir,
-                     batch_size=FLAGS.batch_size,
-                     num_frames=num_frames,
-                     num_classes=FLAGS.num_classes,
-                     drop_last=True,
-                     num_workers=FLAGS.num_workers)
+        return rob_dl(mode=mode,
+                      data_dir=data_dir,
+                      batch_size=FLAGS.batch_size,
+                      num_frames=num_frames,
+                      num_classes=self.num_classes,
+                      drop_last=True,
+                      num_workers=FLAGS.num_workers)
 
     def train_dataloader(self):
         ''' Training dataloader '''

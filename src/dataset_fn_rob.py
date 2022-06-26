@@ -38,7 +38,7 @@ class Rob_Dataset(data.Dataset):
         self.data_dir = data_dir
         self.data_subdirs = data_subdirs
         self.n_frames_max = len(os.listdir(os.path.join(data_dir,
-                                                        'segment_masks',
+                                                        'sm',
                                                         data_subdirs[0])))        
         self.n_frames = n_frames
         self.n_classes = n_classes
@@ -148,8 +148,8 @@ class Rob_Dataset(data.Dataset):
             Segmentation label.
         '''
         subdir = self.data_subdirs[index]  # random.choice(self.data_subdirs)
-        sample_subdir = os.path.join(self.data_dir, 'camera_images', subdir)
-        segment_subdir = os.path.join(self.data_dir, 'segment_masks', subdir)
+        sample_subdir = os.path.join(self.data_dir, 'ci', subdir)
+        segment_subdir = os.path.join(self.data_dir, 'sm', subdir)
         sample_files = [os.path.join(sample_subdir, path)\
             for path in os.listdir(sample_subdir)]
         segment_files = [os.path.join(segment_subdir, path)\
@@ -205,7 +205,7 @@ def rob_dl(mode, data_dir, batch_size, num_frames, num_classes,
     '''
     
     # Dataset info
-    data_subdirs = os.listdir(os.path.join(data_dir, 'segment_masks'))
+    data_subdirs = os.listdir(os.path.join(data_dir, 'sm'))
     random.shuffle(data_subdirs)
     if mode == 'train':
         data_subdirs = data_subdirs[:int(len(data_subdirs) * tr_ratio)]
