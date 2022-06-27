@@ -11,7 +11,7 @@ DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
 class Rob_Dataset(data.Dataset):
-    def __init__(self, data_dir, data_subdirs, n_frames, n_classes, augmentation, packbits):
+    def __init__(self, data_dir, data_seqdirs, n_frames, n_classes, augmentation, packbits):
         ''' Initialize a dataset with the BMW environment (flying skeleton).
         
         Parameters
@@ -37,14 +37,19 @@ class Rob_Dataset(data.Dataset):
         '''
         super(Rob_Dataset, self).__init__()
         self.data_dir = data_dir
-        self.data_subdirs = data_subdirs
+        self.data_seqdirs = data_seqdirs
+        self.segment_subdir = 'sb' if packbits else 'sm'
         self.n_frames_max = len(os.listdir(os.path.join(data_dir,
-                                                        'sm',
-                                                        data_subdirs[0])))        
+                                                        self.segment_subdir,
+                                                        data_seqdirs[0])))
         self.n_frames = n_frames
         self.n_classes = n_classes
         self.augmentation = augmentation
         self.packbits = packbits
+        sample_seqdir = os.path.join(self.data_dir, 'ci', data_seqdirs[0])
+        sample_file = os.path.join(sample_seqdir, os.listdir(sample_seqdir)[0])
+        with Image.open(sample_file) as img:
+            self.sample_dims = np.array(img).shape
     
     @staticmethod
     def apply_jitter(image, fn_order, bri, con, sat, hue):
@@ -134,7 +139,7 @@ class Rob_Dataset(data.Dataset):
     def load_mask(self, file_path):
         mask = np.load(file_path)
         if self.packbits:
-            mask = np.unpackbits(mask, axis=1)[:, :mask.shape[1]]
+            mask = np.unpackbits(mask, axis=1)[:, :self.sample_dims[1]]
         return mask
 
     def __len__(self):
@@ -145,7 +150,7 @@ class Rob_Dataset(data.Dataset):
         int
             Number of samples in the dataset.
         '''
-        return len(self.data_subdirs)
+        return len(self.data_seqdirs)
     
     def __getitem__(self, index):
         ''' Return a sample sequence and the corresponding segmentation masks.
@@ -162,9 +167,9 @@ class Rob_Dataset(data.Dataset):
         label : torch.Tensor
             Segmentation label.
         '''
-        subdir = self.data_subdirs[index]  # random.choice(self.data_subdirs)
-        sample_subdir = os.path.join(self.data_dir, 'ci', subdir)
-        segment_subdir = os.path.join(self.data_dir, 'sm', subdir)
+        seqdir = self.data_seqdirs[index]  # random.choice(self.data_subdirs)
+        sample_subdir = os.path.join(self.data_dir, 'ci', seqdir)
+        segment_subdir = os.path.join(self.data_dir, self.segment_subdir, seqdir)
         sample_files = [os.path.join(sample_subdir, path)\
             for path in os.listdir(sample_subdir)]
         segment_files = [os.path.join(segment_subdir, path)\
@@ -220,18 +225,18 @@ def rob_dl(mode, data_dir, batch_size, num_frames, num_classes,
     '''
     
     # Dataset info
-    data_subdirs = os.listdir(os.path.join(data_dir, 'sm'))
-    random.shuffle(data_subdirs)
+    sample_subdir = os.listdir(os.path.join(data_dir, 'ci'))
+    random.shuffle(sample_subdir)
     if mode == 'train':
-        data_subdirs = data_subdirs[:int(len(data_subdirs) * tr_ratio)]
+        sample_subdir = sample_subdir[:int(len(sample_subdir) * tr_ratio)]
     elif mode == 'valid':
-        data_subdirs = data_subdirs[int(len(data_subdirs) * tr_ratio):]
+        sample_subdir = sample_subdir[int(len(sample_subdir) * tr_ratio):]
     augmentation = (mode == 'train')
     shuffle = (mode == 'train')
     
     # Build dataset class
     dataset = Rob_Dataset(data_dir,
-                          data_subdirs,
+                          sample_subdir,
                           num_frames,
                           num_classes,
                           augmentation,
