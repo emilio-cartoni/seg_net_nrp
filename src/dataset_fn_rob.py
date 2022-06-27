@@ -11,8 +11,7 @@ DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
 class Rob_Dataset(data.Dataset):
-    def __init__(self, data_dir, data_subdirs, n_frames,
-                 n_classes, augmentation, remove_ground):
+    def __init__(self, data_dir, data_subdirs, n_frames, n_classes, augmentation, packbits):
         ''' Initialize a dataset with the BMW environment (flying skeleton).
         
         Parameters
@@ -29,6 +28,8 @@ class Rob_Dataset(data.Dataset):
             Whether to augment the dataset.
         remove_ground : bool
             Whether to remove the ground from the segmentation masks.
+        packbits : bool
+            Whether packbits compression is used in the segmentation mask data.
 
         Returns
         -------
@@ -43,7 +44,7 @@ class Rob_Dataset(data.Dataset):
         self.n_frames = n_frames
         self.n_classes = n_classes
         self.augmentation = augmentation
-        self.remove_ground = remove_ground
+        self.packbits = packbits
     
     @staticmethod
     def apply_jitter(image, fn_order, bri, con, sat, hue):
@@ -101,18 +102,26 @@ class Rob_Dataset(data.Dataset):
         labels = labels.transpose((2, 0, 1, 3))
         sample_list = [samples[..., t] for t in range(self.n_frames)]
         label_list = [labels[..., t] for t in range(self.n_frames)]
-        crop_params = IT.RandomCrop.get_params(torch.tensor(sample_list[0]), output_size=(240, 240))
-        resize = IT.Resize(size=(128, 128), interpolation=IT.InterpolationMode.NEAREST)
+        crop_params = IT.RandomCrop.get_params(torch.tensor(sample_list[0]),
+                                               output_size=(240, 240))
+        resize = IT.Resize(size=(128, 128),
+                           interpolation=IT.InterpolationMode.NEAREST)
         normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        jit = IT.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4)
-        jit_params = IT.ColorJitter.get_params(jit.brightness, jit.contrast,
-                                               jit.saturation, jit.hue)
+        jit = IT.ColorJitter(brightness=0.4,
+                             contrast=0.4,
+                             saturation=0.4,
+                             hue=0.4)
+        jit_params = IT.ColorJitter.get_params(jit.brightness,
+                                               jit.contrast,
+                                               jit.saturation,
+                                               jit.hue)
         samples_and_labels = []
         for sample, label in zip(sample_list, label_list):
             sample = torch.tensor(sample).to(torch.float32).div(255)
             label = torch.tensor(label).to(torch.long).clip(max=self.n_classes)
             if self.augmentation:  # only for training
-                sample = self.apply_jitter(TF.crop(sample, *crop_params), *jit_params)
+                sample = self.apply_jitter(TF.crop(sample, *crop_params),
+                                           *jit_params)
                 label = TF.crop(label, *crop_params)
             sample = normalize(resize(sample))
             label = resize(label)
@@ -121,6 +130,12 @@ class Rob_Dataset(data.Dataset):
         samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
         labels = torch.stack([item[1] for item in samples_and_labels], dim=-1)
         return samples, labels
+    
+    def load_mask(self, file_path):
+        mask = np.load(file_path)
+        if self.packbits:
+            mask = np.unpackbits(mask, axis=1)[:, :mask.shape[1]]
+        return mask
 
     def __len__(self):
         ''' Return the number of samples in the dataset.
@@ -163,7 +178,7 @@ class Rob_Dataset(data.Dataset):
             sample_files = sample_files[first_frame:first_frame + n_frames]
             segment_files = segment_files[first_frame:first_frame + n_frames]
 
-        labels = np.stack([np.load(f) for f in segment_files], axis=-1)
+        labels = np.stack([self.load_mask(f) for f in segment_files], axis=-1)
         samples = np.zeros(labels.shape[:2] + (3, self.n_frames))
         for t, f in enumerate(sample_files):
             with Image.open(f) as img:
@@ -173,7 +188,7 @@ class Rob_Dataset(data.Dataset):
 
 
 def rob_dl(mode, data_dir, batch_size, num_frames, num_classes,
-           drop_last, num_workers, remove_ground=True, tr_ratio=0.8):
+           drop_last, num_workers, packbits, tr_ratio=0.8):
     ''' Get the dataloaders for the BMW dataset.
     
     Parameters
@@ -220,7 +235,7 @@ def rob_dl(mode, data_dir, batch_size, num_frames, num_classes,
                           num_frames,
                           num_classes,
                           augmentation,
-                          remove_ground)
+                          packbits)
                                
     # Adapt batch size
     if mode == 'valid':

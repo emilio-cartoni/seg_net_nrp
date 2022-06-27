@@ -1,4 +1,5 @@
 # Code strongly inspired by https://www.youtube.com/watch?v=G3pOvrKkFuk
+from struct import pack
 import torch
 import pytorch_lightning as pl
 import os
@@ -28,6 +29,7 @@ flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
 flags.DEFINE_string('rnn_type', 'hgru', 'Type of the recurrent cells used')
 flags.DEFINE_boolean('axon_delay', True, 'Whether to use axonal delays or not')
 flags.DEFINE_boolean('pred_loss', True, 'Whether to minimize prediction error')
+flags.DEFINE_boolean('packbits', True, 'Whether packbits compression is used for segmasks')
 FLAGS = flags.FLAGS
 
 
@@ -66,10 +68,19 @@ class PLPredNet(pl.LightningModule):
             Parse the segmentation images into more usable masks
 
         '''
-        dataset_dir = os.path.join(FLAGS.data_dir, FLAGS.data_type, 'sm')
+        segment_subdir = 'sb' if FLAGS.packbits else 'sm'
+        dataset_dir = os.path.join(FLAGS.data_dir,
+                                   FLAGS.data_type,
+                                   segment_subdir)
         if not os.path.isdir(dataset_dir):
             print('Dataset directory does not exist: creation in process.')
-            parse_dataset(FLAGS.data_dir, FLAGS.data_type)
+            parse_dataset(FLAGS.data_dir, FLAGS.data_type, FLAGS.packbits)
+        else:
+            num_dataset_sequences = {'rob': 2000,
+                                     'no_rob': 2000}[FLAGS.data_type]
+            if len(os.listdir(dataset_dir)) < num_dataset_sequences:
+                print('Dataset directory incomplete: completion in process.')
+                parse_dataset(FLAGS.data_dir, FLAGS.data_type, FLAGS.packbits)
     
     def forward(self, input_sequence):
         ''' Forward pass of the PredNet model
@@ -209,7 +220,8 @@ class PLPredNet(pl.LightningModule):
                       num_frames=num_frames,
                       num_classes=self.num_classes,
                       drop_last=True,
-                      num_workers=FLAGS.num_workers)
+                      num_workers=FLAGS.num_workers,
+                      packbits=FLAGS.packbits)
 
     def train_dataloader(self):
         ''' Training dataloader '''
