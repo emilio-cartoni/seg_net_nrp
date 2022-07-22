@@ -148,7 +148,7 @@ class PLPredNet(pl.LightningModule):
             List of dictionaries containing the loss and prediction
 
         '''
-        self.log('train_loss', outputs['loss'].cpu().detach())
+        self.log('train_loss', outputs['loss'].cpu().detach().clip(max=10.0))
 
     def validation_step(self, batch, batch_idx):
         ''' Validation step of the model
@@ -187,7 +187,7 @@ class PLPredNet(pl.LightningModule):
             List of dictionaries containing the loss and prediction
 
         '''
-        self.log('valid_loss', outputs[0]['loss'].cpu())
+        self.log('valid_loss', outputs[0]['loss'].cpu().clip(max=10.0))
         sequences = outputs[0]['sequences']
         writer = self.logger.experiment
         writer.add_video(tag='valid_reconstruction',
