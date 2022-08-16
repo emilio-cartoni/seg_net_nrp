@@ -14,9 +14,9 @@ flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
 flags.DEFINE_boolean('profiler', False, 'Whether to run a profiler training run')
 flags.DEFINE_boolean('load_model', False, 'Load model last checkpoint (if available)')
 flags.DEFINE_integer('batch_size', 4, 'Batch size')
-flags.DEFINE_integer('num_epochs', 30, 'Number of epochs to train')
-flags.DEFINE_integer('num_workers', 4, 'Number of workers for dataloader')
-flags.DEFINE_integer('num_classes', 5, 'Number of classes to segment')
+flags.DEFINE_integer('batch_accum', 4, 'Gradient accumulation steps')
+flags.DEFINE_integer('num_epochs', 10, 'Number of epochs to train')
+flags.DEFINE_integer('num_workers', 0, 'Number of workers for dataloader')
 flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropagation')
 flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
@@ -132,7 +132,8 @@ class PLPredNet(pl.LightningModule):
                             S_seq_true,
                             pred_flag=FLAGS.pred_loss)
         if FLAGS.scheduler_type == 'onecycle' or batch_idx == 0:
-            self.lr_schedulers().step()
+            if (batch_idx + 1) % FLAGS.batch_accum == 0:  # grad accumulation
+                self.lr_schedulers().step()
         return {'loss': loss}
     
     def test_step(self, batch, batch_idx):
@@ -238,7 +239,7 @@ class PLPredNet(pl.LightningModule):
         
     def configure_optimizers(self):
         ''' Define the optimizer and the learning rate scheduler '''
-        num_batches = len(self.train_dataloader())
+        num_batches = len(self.train_dataloader()) // FLAGS.batch_accum
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         scheduler = select_scheduler(optimizer,
                                      scheduler_type=FLAGS.scheduler_type,
@@ -316,10 +317,11 @@ def train_one_net(model_version):
     model_name = f'Prednet_L-{FLAGS.n_layers}_R-{FLAGS.rnn_type}'\
                + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}'
     model = PLPredNet(device)
-    trainer = pl.Trainer(num_sanity_val_steps=0,
+    trainer = pl.Trainer(num_sanity_val_steps=2,
                          default_root_dir=FLAGS.logs_dir,
                          gpus=(1 if device=='cuda' else 0),
                          max_epochs=FLAGS.num_epochs,
+                         accumulate_grad_batches=4,
                          fast_dev_run=FLAGS.debug,
                          profiler='simple' if FLAGS.profiler else None,
                          log_every_n_steps=1,
