@@ -21,10 +21,10 @@ flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropag
 flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
-flags.DEFINE_string('data_dir', '/mnt/d/DL/datasets/nrp', 'Path to main data directory')
+flags.DEFINE_string('data_dir', 'dataset', 'Path to main data directory')
 flags.DEFINE_string('data_type', 'rob', 'Type of dataset used')  # 'rob', 'no_rob'
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
-flags.DEFINE_float('lr', 1e-2, 'Learning rate')
+flags.DEFINE_float('lr', 1e-3, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
 flags.DEFINE_string('rnn_type', 'hgru', 'Type of the recurrent cells used')
 flags.DEFINE_boolean('axon_delay', True, 'Whether to use axonal delays or not')
