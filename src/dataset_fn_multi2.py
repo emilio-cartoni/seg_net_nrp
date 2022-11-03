@@ -40,12 +40,22 @@ class Multi_Dataset(data.Dataset):
     def transform(self, samples, labels):
         sample_list = [samples[..., t] for t in range(self.n_frames)]
         label_list = [labels[..., t] for t in range(self.n_frames)]
-        crop_params = IT.RandomCrop.get_params(torch.tensor(sample_list[0]), output_size=(240, 240))
-        resize = IT.Resize(size=(128, 128), interpolation=IT.InterpolationMode.NEAREST)
-        normalize = IT.Normalize(mean=DATASET_MEAN, std=DATASET_STD)
-        jit = IT.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4)
-        jit_params = IT.ColorJitter.get_params(jit.brightness, jit.contrast,
-                                               jit.saturation, jit.hue)
+        crop_params = IT.RandomCrop.get_params(torch.tensor(sample_list[0]),
+                                                            output_size=(240, 240))
+        resize = IT.Resize(size=(128, 128),
+                           interpolation=IT.InterpolationMode.NEAREST)
+        normalize = IT.Normalize(mean=DATASET_MEAN,
+                                 std=DATASET_STD)
+
+        jit = IT.ColorJitter(brightness=0.4,
+                             contrast=0.4,
+                             saturation=0.4,
+                             hue=0.4)
+        jit_params = IT.ColorJitter.get_params(jit.brightness,
+                                               jit.contrast,
+                                               jit.saturation,
+                                               jit.hue)
+
         samples_and_labels = []
         for sample, label in zip(sample_list, label_list):
             sample = torch.tensor(sample).to(torch.float32).div(255)
@@ -84,22 +94,37 @@ class Multi_Dataset(data.Dataset):
         return samples, labels
 
 
-def get_multi_dataloaders(root_dir, train_valid_ratio, batch_size_train, batch_size_valid,
+def get_multi_dataloaders(dataset_dir, dataset_path, tr_ratio,
+                          batch_size_train, batch_size_valid,
                           n_frames, augmentation, remove_ground):
+    
     # Dataset info
+    root_dir = dataset_path[dataset_dir]
     train_path = os.path.join(root_dir, 'train.hdf5')
     valid_path = os.path.join(root_dir, 'valid.hdf5')
     n_classes = 11
 
     # Training dataloader
-    train_dataset = Multi_Dataset(train_path, n_frames, n_classes, augmentation, remove_ground)
-    train_dataloader = data.DataLoader(
-        train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True)
+    train_dataset = Multi_Dataset(train_path,
+                                  n_frames,
+                                  n_classes,
+                                  augmentation,
+                                  remove_ground)
+    train_dataloader = data.DataLoader(train_dataset,
+                                       batch_size=batch_size_train,
+                                       shuffle=True,
+                                       pin_memory=True)
 
     # Validation dataloader
-    valid_dataset = Multi_Dataset(valid_path, n_frames, n_classes, False, remove_ground)
-    valid_dataloader = data.DataLoader(
-        valid_dataset, batch_size=batch_size_valid, shuffle=True, pin_memory=True)
+    valid_dataset = Multi_Dataset(valid_path,
+                                  n_frames,
+                                  n_classes,
+                                  False,
+                                  remove_ground)
+    valid_dataloader = data.DataLoader(valid_dataset,
+                                       batch_size=batch_size_valid,
+                                       shuffle=True,
+                                       pin_memory=True)
         
     # Return the dataloaders and number of classes to the computer
     return train_dataloader, valid_dataloader, n_classes

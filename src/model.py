@@ -5,24 +5,56 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from src.hgru_cell import hConvGRUCell
-from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
-
+from src.utils import select_scheduler
 
 class PredNet(nn.Module):
-    def __init__(self, model_name, n_classes, n_layers, seg_layers,
-                 bu_channels, td_channels, do_segmentation, device) -> None:
+    def __init__(
+                 self, model_name, do_time_aligned, n_classes, n_layers, td_layers,
+                 img_layers, seg_layers, bu_channels, td_channels, device) -> None:
+        ''' Create a PredNet model, initialize its states, create a checkpoint
+            folder and put the model on the correct device (cpu or gpu).
+        
+        Parameters
+        ----------
+        model_name : str
+            Name of the model (to identify the checkpoint folder when loading).
+        n_classes : int
+            Number of classes in the segmentation masks to predict.
+        n_layers : int
+            Number of layers in the bottom-up and top-down networks.
+        td_layers : list of str
+            Type of cell used in the top-down computations.
+        seg_layers : list of str
+            What td_layers are used by the segmentation decoder.
+        bu_channels : list of int
+            Number of channels in the bottom-up layers.
+        td_channels : list of int
+            Number of channels in the top-down layers.
+        do_segmentation : bool
+            Whether to decode segmentation masks.
+        device : torch.device
+            Device to use for the computation ('cpu', 'cuda').
+
+        Returns
+        -------
+        None.
+        '''
         super(PredNet, self).__init__()
 
         # Model parameters
         self.model_name = model_name
+        self.do_time_aligned = True
         self.n_classes = n_classes
         self.n_layers = n_layers
+        self.td_layers = td_layers
+        self.img_layers = img_layers
         self.seg_layers = seg_layers
         if bu_channels[0] != 3:
             bu_channels = (3,) + bu_channels[:-1]  # worst coding ever
         self.bu_channels = bu_channels
         self.td_channels = td_channels
-        self.do_segmentation = do_segmentation
+        self.do_prediction = not (len(img_layers) == 0)
+        self.do_segmentation = not (len(seg_layers) == 0)
         self.device = device
         
         # Model states
@@ -45,7 +77,10 @@ class PredNet(nn.Module):
         td_conv = []
         for l in range(self.n_layers):  # "2", because error is torch.cat([pos, neg])
             in_channels = 2 * bu_channels[l] + (td_channels[l + 1] if l < n_layers - 1 else 0)
-            td_conv.append(hConvGRUCell(in_channels, td_channels[l], kernel_size=5))  # implicit padding
+            if td_layers[l] == 'H':
+                td_conv.append(hConvGRUCell(in_channels, td_channels[l], kernel_size=5))  # implicit padding
+            elif td_layers[l] == 'C':
+                td_conv.append(nn.Conv2d(in_channels, td_channels[l], kernel_size=5, padding=2))
         self.td_conv = nn.ModuleList(td_conv)
         self.td_upsample = nn.ModuleList([nn.Upsample(scale_factor=2) for _ in range(n_layers - 1)])
 
@@ -59,6 +94,24 @@ class PredNet(nn.Module):
         os.makedirs(f'./ckpt/{model_name}/', exist_ok=True)
 
     def forward(self, A, frame_idx):
+        ''' Forward pass of the PredNet.
+        
+        Parameters
+        ----------
+        A : torch.Tensor
+            Input image (from a batch of input sequences).
+        frame_idx : int
+            Index of the current frame in the sequence.
+
+        Returns
+        -------
+        E_pile : list of torch.Tensor
+            Activity of all errors units (bottom-up pass).
+        img_prediction : torch.Tensor
+            Prediction of the next frame input (first layer of the network).
+        seg_prediction : torch.Tensor
+            Prediction of the segmentation mask (if do_segmentation is True).
+        '''
         # Initialize outputs of this step, as well as internal states, if necessary
         batch_dims = A.size()
         batch_size, _, h, w = batch_dims
@@ -71,10 +124,12 @@ class PredNet(nn.Module):
 
         # Bottom-up pass
         for l in range(self.n_layers):
-            A_hat = F.relu(self.la_conv[l](self.R_state[l]))  # post-synaptic activity of representation prediction
+            R_input = self.R_state[l]  # this one is always from last time-step (current expectations)
+            A_hat = F.relu(self.la_conv[l](R_input))  # post-synaptic activity of representation prediction
             error = F.relu(torch.cat((A - A_hat, A_hat - A), dim=1))  # post-synaptic activity of A (error goes up)
             E_pile[l] = error  # stored for next step, used in top-down pass
-            A = F.max_pool2d(error, kernel_size=2, stride=2)  # A update for next bu-layer
+            E_input = self.E_state[l] if self.do_time_aligned else error
+            A = F.max_pool2d(E_input, kernel_size=2, stride=2)  # A update for next bu-layer
             if l < self.n_layers - 1:
                 A = self.bu_conv[l](A)  # presynaptic activity of bottom-up input
             if l == 0:
@@ -82,12 +137,16 @@ class PredNet(nn.Module):
 
         # Top-down pass
         for l in reversed(range(self.n_layers)):
-            td_input = self.E_state[l]
+            td_input = self.E_state[l] if self.do_time_aligned else E_pile[l]
             if l < self.n_layers - 1:
-                td_output = self.td_upsample[l](self.R_state[l + 1])
+                R_input = self.R_state[l + 1] if self.do_time_aligned else R_pile[l + 1]
+                td_output = self.td_upsample[l](R_input)  # here R is input
                 td_input = torch.cat((td_input, td_output), dim=1)
-            R_pile[l] = self.td_conv[l](td_input, self.R_state[l])
-        
+            if self.td_layers[l] == 'H':
+                R_pile[l] = self.td_conv[l](td_input, self.R_state[l])  # here R is recurrent state
+            elif self.td_layers[l] == 'C':
+                R_pile[l] = self.td_conv[l](td_input)
+
         # Image segmentation
         if self.do_segmentation:
             img_segmentation = self.seg_decoder(R_pile)  # E_pile
@@ -102,38 +161,75 @@ class PredNet(nn.Module):
         # Return the states to the computer
         return E_pile, img_prediction, img_segmentation
 
-    def save_model(self, optimizer, scheduler, train_losses, valid_losses):
-        last_epoch = scheduler.last_epoch
+    def save_model(self, optimizer, scheduler, train_losses, valid_losses, epoch, n_epochs_save):
+        ''' Save the model and the training history.
+        
+        Parameters
+        ----------
+        optimizer : torch.optim.Optimizer
+            Optimizer used to train the model.
+        scheduler : torch.optim.lr_scheduler
+            Learning rate scheduler used to train the model.
+        train_losses : list of float
+            Training losses of the model.
+        valid_losses : list of float
+            Validation losses of the model.
+
+        Returns
+        -------
+        None
+        '''
+        ckpt_id = epoch // n_epochs_save * n_epochs_save
         torch.save({
             'model_name': self.model_name,
+            'do_time_aligned': self.do_time_aligned,
             'n_classes': self.n_classes,
-            'n_layers_img': self.n_layers,
+            'n_layers': self.n_layers,
+            'td_layers': self.td_layers,
+            'img_layers': self.img_layers,
             'seg_layers': self.seg_layers,
             'bu_channels': self.bu_channels,
             'td_channels': self.td_channels,
-            'do_segmentation': self.do_segmentation,
             'device': self.device,
             'model_params': self.state_dict(),
             'optimizer_params': optimizer.state_dict(),
             'scheduler_params': scheduler.state_dict(),
             'train_losses': train_losses,
             'valid_losses': valid_losses},
-            f'./ckpt/{self.model_name}/ckpt_{last_epoch:03}.pt')
+            rf'.\ckpt\{self.model_name}\ckpt_{ckpt_id:03}.pt')
         print('SAVED')
         train_losses = [l if l < 10 * sum(train_losses) / len(train_losses) else 0.0 for l in train_losses]
         valid_losses = [l if l < 10 * sum(valid_losses) / len(valid_losses) else 0.0 for l in valid_losses]
-        train_axis = list(np.arange(0, last_epoch, last_epoch / len(train_losses)))[:len(train_losses)]
-        valid_axis = list(np.arange(0, last_epoch, last_epoch / len(valid_losses)))[:len(valid_losses)]
+        train_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(train_losses)))[:len(train_losses)]
+        valid_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(valid_losses)))[:len(valid_losses)]
         plt.plot(train_axis, train_losses, label='train')
         plt.plot(valid_axis, valid_losses, label='valid')
         plt.legend()
-        plt.savefig(f'./ckpt/{self.model_name}/loss_plot.png')
+        plt.savefig(rf'.\ckpt\{self.model_name}\loss_plot.png')
         plt.close()
 
     @classmethod
-    def load_model(cls, model_name, n_epochs_run=None, epoch_to_load=None, lr_params=None):
+    def load_model(cls, model_name, epoch_to_load=None, lr_params=None):
+        ''' Load a model from a checkpoint.
+        
+        Parameters
+        ----------
+        model_name : str
+            Name of the model (used for retrieve the checkpoint folder).
+        n_epochs_run : int
+            Number of epochs the model has been trained on.
+        epoch_to_load : int
+            Epoch to load a checkpoint from.
+        lr_params : dict
+            Learning rate parameters (for optimizer and scheduler).
+
+        Returns
+        -------
+        model : Model
+            Loaded model.
+        '''
         ckpt_dir = f'./ckpt/{model_name}/'
-        list_dir = [c for c in os.listdir(ckpt_dir) if '.pt' in c]
+        list_dir = sorted([c for c in os.listdir(ckpt_dir) if '.pt' in c])
         ckpt_path = list_dir[-1]  # take last checkpoint (default)
         for ckpt in list_dir:
             if str(epoch_to_load) in ckpt.split('_')[-1]:
@@ -142,41 +238,50 @@ class PredNet(nn.Module):
         model = cls(
             model_name=model_name,
             n_classes=save['n_classes'],
-            n_layers=save['n_layers_img'],
+            do_time_aligned=save['do_time_aligned'],
+            n_layers=save['n_layers'],
+            td_layers=save['td_layers'],
+            img_layers=save['img_layers'],
             seg_layers=save['seg_layers'],
             bu_channels=save['bu_channels'],
             td_channels=save['td_channels'],
-            do_segmentation=save['do_segmentation'],
             device=save['device'])
         model.load_state_dict(save['model_params'])
         valid_losses = save['valid_losses']
         train_losses = save['train_losses']
-        if lr_params is not None:
-            scheduler_type, learning_rate, lr_decay_time, lr_decay_rate, betas, first_cycle_steps,\
-                cycle_mult, max_lr, min_lr, warmup_steps, gamma, betas = lr_params
-            optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas)
-            if scheduler_type == 'multistep':    
-                scheduler = torch.optim.lr_scheduler.MultiStepLR(
-                    optimizer,
-                    range(lr_decay_time, (n_epochs_run + 1) * 10, lr_decay_time),
-                    gamma=lr_decay_rate)
-            elif scheduler_type == 'cosannealwarmuprestart':
-                scheduler = CosineAnnealingWarmupRestarts(
-                    optimizer, first_cycle_steps=first_cycle_steps,
-                    cycle_mult=cycle_mult, max_lr=max_lr, min_lr=min_lr,
-                    warmup_steps=warmup_steps, gamma=gamma)
+        if lr_params is None:
+            optimizer, scheduler = None, None
+        else:
+            optimizer = torch.optim.AdamW(model.parameters(), **lr_params['optimizer'])
+            scheduler = select_scheduler(optimizer, lr_params)
             optimizer.load_state_dict(save['optimizer_params'])
             scheduler.load_state_dict(save['scheduler_params'])
-        else:
-            optimizer, scheduler = None, None
         return model, optimizer, scheduler, train_losses, valid_losses
 
 
 class Decoder_2D_bis(nn.Module):
     def __init__(self, decoder_layers, input_channels, output_channels, output_fn):
+        ''' Decoder for any set of 2D images (e.g., segmentation masks).
+            This version is in development and does not work yet.
+        
+        Parameters
+        ----------
+        decoder_layers : list of int
+            Layers of PredNet from which the 2D labels are decoded.
+        input_channels : list of int
+            Number of channels of in the decoded layers.
+        output_channels : int
+            Number of channels of the output to decode.
+        output_fn : str
+            Activation function of the decoder.
+
+        Returns
+        -------
+        None
+        '''
         super(Decoder_2D_bis, self).__init__()
         self.decoder_layers = decoder_layers
-        hidden_channels = 32
+        hidden_channels = 64
         hidden_channels_out = hidden_channels * len(decoder_layers)
         up_conv = []
         for l in decoder_layers:
@@ -189,6 +294,20 @@ class Decoder_2D_bis(nn.Module):
         self.out_conv = nn.Sequential(nn.Conv2d(hidden_channels_out, output_channels, 1), output_fn)
         
     def forward(self, R_pile):
+        ''' Forward pass of the decoder.
+        
+        Parameters
+        ----------
+        R_pile : list of torch.Tensor
+            List of tensors of shape (batch_size, channels, height, width)
+            containing the activity of the latent units of the PredNet.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of shape (batch_size, channels, height, width)
+            containing the decoded output.
+        '''
         hidden_input = [self.up_conv[i](R_pile[l]) for i, l in enumerate(self.decoder_layers)]
         hidden_input = F.relu(torch.cat(hidden_input, dim=1))
         return self.out_conv(hidden_input)
@@ -196,6 +315,24 @@ class Decoder_2D_bis(nn.Module):
 
 class Decoder_2D(nn.Module):
     def __init__(self, decoder_layers, input_channels, n_output_channels, output_fn):
+        ''' Decoder for any set of 2D images (e.g., segmentation masks).
+            This version is in development and does not work yet.
+        
+        Parameters
+        ----------
+        decoder_layers : list of int
+            Layers of PredNet from which the 2D labels are decoded.
+        input_channels : list of int
+            Number of channels of in the decoded layers.
+        n_output_channels : int
+            Number of channels of the output to decode.
+        output_fn : str
+            Activation function of the decoder.
+
+        Returns
+        -------
+        None
+        '''
         super(Decoder_2D, self).__init__()
         self.decoder_layers = decoder_layers
         decoder_upsp = []
@@ -213,6 +350,20 @@ class Decoder_2D(nn.Module):
             output_fn)
   
     def forward(self, R_pile):
+        ''' Forward pass of the decoder.
+        
+        Parameters
+        ----------
+        R_pile : list of torch.Tensor
+            List of tensors of shape (batch_size, channels, height, width)
+            containing the activity of the latent units of the PredNet.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of shape (batch_size, channels, height, width)
+            containing the decoded output.
+        '''
         D = R_pile[max(self.decoder_layers)]
         D = self.decoder_upsp[-1](D) if max(self.decoder_layers) > 0 else self.decoder_conv(D)
         for l in reversed(range(max(self.decoder_layers))):
