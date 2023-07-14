@@ -6,19 +6,21 @@ from PIL import Image
 from src.utils import onehot_to_rgb, hsv_to_rgb
 import sys
 
-dataset_dir = r'D:\DL\datasets\nrp'
-dataset_type = 'multi_small'  # 'multi_small'; 'multi_shelf'
+
+dataset_dir = f'.{os.sep}dataset{os.sep}'
+dataset_type = 'multi_shelf'  # 'multi_small'; 'multi_shelf'
 train_path = os.path.join(dataset_dir, dataset_type, 'train.hdf5')
 valid_path = os.path.join(dataset_dir, dataset_type, 'valid.hdf5')
 sample_dir = os.path.join(dataset_dir, dataset_type, 'camera_images')
 segment_dir = os.path.join(dataset_dir, dataset_type, 'segment_images')
-label_id_map = {'a_marbles': 0, 'b_marbles': 1, 'apple': 2, 'banana': 3, 'shelf': 4}
+#label_id_map = {'a_marbles': 0, 'b_marbles': 1, 'apple': 2, 'banana': 3, 'shelf': 4}
+label_id_map = {'mug': 0, 'banana': 1}
 # label_id_map = {'chips_can': 0, 'hammer': 1, 'power_drill': 2,
 #                 'scissors': 3, 'timer': 4, 'adjustable_wrench': 5,
 #                 'flat_screwdriver': 6, 'phillips_screwdriver': 7}
 
-n_sequences_train = 1600
-n_sequences_valid = 400
+n_sequences_train = 1
+n_sequences_valid = 1
 n_frames_max = 59
 h, w = 320, 320
 n_channels = 3
