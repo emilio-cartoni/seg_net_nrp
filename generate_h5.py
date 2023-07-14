@@ -4,6 +4,7 @@ import h5py
 import matplotlib.pyplot as plt
 from PIL import Image
 from src.utils import onehot_to_rgb, hsv_to_rgb
+import sys
 
 dataset_dir = r'D:\DL\datasets\nrp'
 dataset_type = 'multi_small'  # 'multi_small'; 'multi_shelf'
@@ -60,7 +61,7 @@ if show_dataset_mode:
             total_image = np.vstack([total_image, h_strip])
         plt.imshow(total_image.astype('uint8'))
         plt.show()
-    exit()
+    sys.exit()
 else:
     f_train = h5py.File(train_path, 'w')
     f_valid = h5py.File(valid_path, 'w')
