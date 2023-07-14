@@ -32,16 +32,25 @@ if show_dataset_mode:
         labels = np.array(f['labels'])
 
     n_sequences_train, n_channels, h, w, n_frames_max = samples.shape
-    n_classes = labels.shape[1]
 
     print("Samples shape:", samples.shape)
     print("Labels shape:", labels.shape)
+
+    if labels.shape[1] == 1:
+        n_classes = labels.max()
+    else:
+        n_classes = labels.shape[1]
+
     for seq in range(n_sequences_train):
         print(f"Showing sequence {seq} of {n_sequences_train}")
 
         image_video = samples[seq, ...].transpose(1, 2, 0, 3)
-        labels_video = onehot_to_rgb(np.expand_dims(labels[seq,...], 0))[0].transpose(1, 2, 0, 3)
-        # To make labels compatible with images as images are uint8, 0..255
+        labels_seq = np.expand_dims(labels[seq,...], 0)
+
+        # Fix in case labels are put all in the same dimension intead of having own dimensions
+        labels_seq = np.hstack([labels_seq == (idx + 1)  for idx in range(n_classes)])
+
+        labels_video = onehot_to_rgb(labels_seq)[0].transpose(1, 2, 0, 3)
         labels_video *= 255
 
         rows = 8  # use optimal tiling algorithm to calculate rows and cols
