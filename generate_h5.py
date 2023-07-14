@@ -14,7 +14,7 @@ valid_path = os.path.join(dataset_dir, dataset_type, 'valid.hdf5')
 sample_dir = os.path.join(dataset_dir, dataset_type, 'camera_images')
 segment_dir = os.path.join(dataset_dir, dataset_type, 'segment_images')
 #label_id_map = {'a_marbles': 0, 'b_marbles': 1, 'apple': 2, 'banana': 3, 'shelf': 4}
-label_id_map = {'mug': 0, 'banana': 1}
+label_id_map = {'mug': 0, 'banana': 1, 'tomato_soup_can': 2}
 # label_id_map = {'chips_can': 0, 'hammer': 1, 'power_drill': 2,
 #                 'scissors': 3, 'timer': 4, 'adjustable_wrench': 5,
 #                 'flat_screwdriver': 6, 'phillips_screwdriver': 7}

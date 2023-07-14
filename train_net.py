@@ -7,107 +7,102 @@ from src.dataset_fn_handover import get_handover_dataloaders
 from src.dataset_fn_bmw3 import get_bmw_dataloaders
 from src.dataset_fn_multi2 import get_multi_dataloaders
 
-def main():
 
-    # General parameters
-    load_model = True
-    n_epochs_run = 20
-    n_epochs_save = 5
-    epoch_to_load = None  # None to load the last available epoch
-    remove_ground = True
+# General parameters
+load_model = False
+n_epochs_run = 20
+n_epochs_save = 5
+epoch_to_load = None  # None to load the last available epoch
+remove_ground = False
 
-    # Dataset parameters
-    data_params = {
-        'batch_size_train': 4,
-        'batch_size_valid': 16,
-        'n_frames': 50,
-        'tr_ratio': 0.8,
-        'remove_ground': remove_ground,
-        'augmentation': True,
-        'dataset_dir': 'multi_shelf',  # 'mots', 'nrp', 'handover', 'multi_shelf', 'multi_small', 'bmw'
-        'dataset_path': {
-            'mots': r'D:\DL\datasets\kitti\mots',
-            'nrp': r'D:\DL\datasets\nrp\training_room',
-            'handover': r'D:\DL\datasets\nrp\handover',
-            'multi_shelf': r'D:\DL\datasets\nrp\multi_shelf',
-            'multi_small': r'D:\DL\datasets\nrp\multi_small',
-            'bmw': r'D:\DL\datasets\nrp\bmw'}}
-    dataloader_fn = {'mots': get_mots_dataloaders,  # TODO: either code them or make only one file loader
-                     'nrp': get_nrp_dataloaders,
-                     'handover': get_handover_dataloaders,
-                     'multi_shelf': get_multi_dataloaders,
-                     'multi_small': get_multi_dataloaders,
-                     'bmw': get_bmw_dataloaders}[data_params['dataset_dir']]
-    train_dl, valid_dl, n_classes = dataloader_fn(**data_params)
+# Dataset parameters
+data_params = {
+    'batch_size_train': 4,
+    'batch_size_valid': 16,
+    'n_frames': 50,
+    'tr_ratio': 0.8,
+    'remove_ground': remove_ground,
+    'augmentation': True,
+    'dataset_dir': 'multi_shelf',  # 'mots', 'nrp', 'handover', 'multi_shelf', 'multi_small', 'bmw'
+    'dataset_path': {
+        'mots': r'D:\DL\datasets\kitti\mots',
+        'nrp': r'D:\DL\datasets\nrp\training_room',
+        'handover': r'D:\DL\datasets\nrp\handover',
+        'multi_shelf': r'./dataset/multi_shelf',
+        'multi_small': r'D:\DL\datasets\nrp\multi_small',
+        'bmw': r'D:\DL\datasets\nrp\bmw'}}
+dataloader_fn = {'mots': get_mots_dataloaders,  # TODO: either code them or make only one file loader
+                 'nrp': get_nrp_dataloaders,
+                 'handover': get_handover_dataloaders,
+                 'multi_shelf': get_multi_dataloaders,
+                 'multi_small': get_multi_dataloaders,
+                 'bmw': get_bmw_dataloaders}[data_params['dataset_dir']]
+train_dl, valid_dl, n_classes = dataloader_fn(**data_params)
 
-    # Model parameters
-    n_layers = 3
-    model_params = {
-        'n_layers': n_layers,
-        'do_time_aligned': True,
-        'n_classes': n_classes,
-        'td_layers': ('H', 'H', 'H', 'H', 'H', 'H')[:n_layers],  # 'Hgru', 'Illusory', 'Lstm', 'Conv'
-        'img_layers': tuple([l for l in [0, 2] if l < n_layers]),  # set as [] for not using it
-        'seg_layers': tuple([l for l in [0, 1] if l < n_layers]),  # set as [] for not using it
-        'bu_channels': (64, 128, 256, 512, 1024)[:n_layers],
-        'td_channels': (64, 128, 256, 512, 1024)[:n_layers],
-        'device': 'cuda'}  # 'cuda', 'cpu'
+#assert(False)
 
-    # Loss parameters
-    loss_params = {
-        'n_backprop_frames': 10,
-        't_start': 1,
-        'remove_ground': remove_ground,
-        'latent': (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
-        'prd_mse': 0.0 if len(model_params['img_layers']) > 0 else 0.0,
-        'prd_mae': 1.0 if len(model_params['img_layers']) > 0 else 0.0,
-        'seg_dic': 1.0 if len(model_params['seg_layers']) > 0 else 0.0,
-        'seg_foc': 1.0 if len(model_params['seg_layers']) > 0 else 0.0}
+# Model parameters
+n_layers = 3
+model_params = {
+    'n_layers': n_layers,
+    'do_time_aligned': True,
+    'n_classes': n_classes,
+    'td_layers': ('H', 'H', 'H', 'H', 'H', 'H')[:n_layers],  # 'Hgru', 'Illusory', 'Lstm', 'Conv'
+    'img_layers': tuple([l for l in [0, 2] if l < n_layers]),  # set as [] for not using it
+    'seg_layers': tuple([l for l in [0, 1] if l < n_layers]),  # set as [] for not using it
+    'bu_channels': (64, 128, 256, 512, 1024)[:n_layers],
+    'td_channels': (64, 128, 256, 512, 1024)[:n_layers],
+    'device': 'cpu'}  # 'cuda', 'cpu'
 
-    # Training parameters
-    lr = 5e-4
-    lr_params = {
-        'scheduler_type': 'multistep',  # 'multistep', 'cosine', 'onecycle'
-        'optimizer': {'lr': lr, 'betas': (0.9, 0.98), 'eps': 1e-8},
-        'multistep': {'milestones': range(5, 10000, 5), 'gamma': 0.75},
-        'cosine': {'first_cycle_steps': 10, 'cycle_mult': 1.0, 'max_lr': lr,
-                'min_lr': lr / 100, 'warmup_steps': 2, 'gamma': 1.0},
-        'onecycle': {'max_lr': lr, 'steps_per_epoch': len(train_dl), 'epochs': n_epochs_run}}
+# Loss parameters
+loss_params = {
+    'n_backprop_frames': 10,
+    't_start': 1,
+    'remove_ground': remove_ground,
+    'latent': (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)[:n_layers],
+    'prd_mse': 0.0 if len(model_params['img_layers']) > 0 else 0.0,
+    'prd_mae': 1.0 if len(model_params['img_layers']) > 0 else 0.0,
+    'seg_dic': 1.0 if len(model_params['seg_layers']) > 0 else 0.0,
+    'seg_foc': 1.0 if len(model_params['seg_layers']) > 0 else 0.0}
 
-    # Load the model, optimizer and scheduler
-    model_name = 'BU' + str(model_params['bu_channels']) + '_TD' + str(model_params['td_channels'])\
-               + '_TL' + str(model_params['td_layers']) + '_IL' + str(model_params['img_layers'])\
-               + '_PL' + str(model_params['seg_layers'])
-    model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
-    model_name = 'Michael_ckpt'
-    if not load_model:
-        print(f'\nCreating model: {model_name}')
-        model = PredNet(model_name, **model_params)
-        train_losses, valid_losses = [], []
-        optimizer = torch.optim.AdamW(model.parameters(), **lr_params['optimizer'])
-        scheduler = select_scheduler(optimizer, lr_params)
-    else:
-        print(f'\nLoading model: {model_name}')
-        model, optimizer, scheduler, train_losses, valid_losses = PredNet.load_model(model_name,
-                                                                                     epoch_to_load,
-                                                                                     lr_params)
+# Training parameters
+lr = 5e-4
+lr_params = {
+    'scheduler_type': 'multistep',  # 'multistep', 'cosine', 'onecycle'
+    'optimizer': {'lr': lr, 'betas': (0.9, 0.98), 'eps': 1e-8},
+    'multistep': {'milestones': range(5, 10000, 5), 'gamma': 0.75},
+    'cosine': {'first_cycle_steps': 10, 'cycle_mult': 1.0, 'max_lr': lr,
+            'min_lr': lr / 100, 'warmup_steps': 2, 'gamma': 1.0},
+    'onecycle': {'max_lr': lr, 'steps_per_epoch': len(train_dl), 'epochs': n_epochs_run}}
 
-    # Train the network
-    last_epoch = len(valid_losses) // (1 + len(valid_dl) // data_params['batch_size_valid'])
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'Training network ({n_params} trainable parameters)')
-    for epoch in range(last_epoch, last_epoch + n_epochs_run):
-        print(f'\nRunning epoch {epoch}:')
+# Load the model, optimizer and scheduler
+model_name = 'BU' + str(model_params['bu_channels']) + '_TD' + str(model_params['td_channels'])\
+           + '_TL' + str(model_params['td_layers']) + '_IL' + str(model_params['img_layers'])\
+           + '_PL' + str(model_params['seg_layers'])
+model_name = model_name.replace('.', '-').replace(',', '-').replace(' ', '').replace("'", '')
+model_name = 'Michael_ckpt'
+if not load_model:
+    print(f'\nCreating model: {model_name}')
+    model = PredNet(model_name, **model_params)
+    train_losses, valid_losses = [], []
+    optimizer = torch.optim.AdamW(model.parameters(), **lr_params['optimizer'])
+    scheduler = select_scheduler(optimizer, lr_params)
+else:
+    print(f'\nLoading model: {model_name}')
+    model, optimizer, scheduler, train_losses, valid_losses = PredNet.load_model(model_name,
+                                                                                 epoch_to_load,
+                                                                                 lr_params)
 
-        model.save_model(optimizer, scheduler, train_losses, valid_losses, epoch, n_epochs_save)
-        exit()
+# Train the network
+last_epoch = len(valid_losses) // (1 + len(valid_dl) // data_params['batch_size_valid'])
+n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f'Training network ({n_params} trainable parameters)')
+for epoch in range(last_epoch, last_epoch + n_epochs_run):
+    print(f'\nRunning epoch {epoch}:')
+    train_losses.extend(train_fn(train_dl, model, optimizer, scheduler, loss_params, epoch))
+    valid_losses.extend(valid_fn(valid_dl, model, loss_params, epoch))
+    model.save_model(optimizer, scheduler, train_losses, valid_losses, epoch, n_epochs_save)
 
-        train_losses.extend(train_fn(train_dl, model, optimizer, scheduler, loss_params, epoch))
-        valid_losses.extend(valid_fn(valid_dl, model, loss_params, epoch))
-        model.save_model(optimizer, scheduler, train_losses, valid_losses, epoch, n_epochs_save)
-
-if __name__ == '__main__':
-    main()
 
 
 # import torch
