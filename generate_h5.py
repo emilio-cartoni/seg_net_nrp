@@ -39,7 +39,7 @@ if show_string.lower() == 'y':
     print("Samples shape:", samples.shape)
     print("Labels shape:", labels.shape)
 
-    if labels.shape[1] == 1:
+    if len(labels.shape) < 5 or labels.shape[1] == 1:
         n_classes = labels.max()
     else:
         n_classes = labels.shape[1]
@@ -49,9 +49,12 @@ if show_string.lower() == 'y':
 
         image_video = samples[seq, ...].transpose(1, 2, 0, 3)
         labels_seq = np.expand_dims(labels[seq,...], 0)
+        if len(labels.shape) < 5:
+            labels_seq = np.expand_dims(labels_seq, 1)
 
-        # Fix in case labels are put all in the same dimension intead of having own dimensions
-        labels_seq = np.hstack([labels_seq == (idx + 1)  for idx in range(n_classes)])
+        if labels_seq.shape[1] == 1:
+            # Fix in case labels are put all in the same dimension intead of having own dimensions
+            labels_seq = np.hstack([labels_seq == (idx + 1)  for idx in range(n_classes)])
 
         labels_video = onehot_to_rgb(labels_seq)[0].transpose(1, 2, 0, 3)
         labels_video *= 255
@@ -126,17 +129,22 @@ for sequence_id, segment_path in enumerate(sorted(os.listdir(segment_dir))):
                 with Image.open(seg_full_path) as read_seg:
                     to_write = np.array(read_seg)[:, :, -1]  # alpha-channel is seg
                     to_write = np.where(to_write > 0, 1, 0).astype(np.uint8)
+                    to_write *= (label_id + 1)
                     if sequence_id < n_sequences_train:
-                        seg_train_array[sequence_id, label_id, :, :, frame_id] += to_write
+                        seg_train_array[sequence_id, label_id, :, :, frame_id] = to_write
                     else:
                         valid_id = sequence_id - n_sequences_train
-                        seg_valid_array[valid_id, label_id, :, :, frame_id] += to_write
+                        seg_valid_array[valid_id, label_id, :, :, frame_id] = to_write
 
 if no_hot_labels:
-    seg_train_array = np.argmax(seg_train_array, axis=1)
-    seg_valid_array = np.argmax(seg_valid_array, axis=1)
+    seg_train_array = np.max(seg_train_array, axis=1)
+    seg_valid_array = np.max(seg_valid_array, axis=1)
     seg_train_array_shape = (n_sequences_train, h, w, n_frames_max)
     seg_valid_array_shape = (n_sequences_valid, h, w, n_frames_max)
+else:
+    seg_train_array = seg_train_array > 0
+    seg_valid_array = seg_valid_array > 0
+
 f_train.create_dataset('labels', seg_train_array_shape, data=seg_train_array)
 f_valid.create_dataset('labels', seg_valid_array_shape, data=seg_valid_array)
 f_train.close()
