@@ -101,9 +101,9 @@ f_train.create_dataset('samples', img_train_array_shape, data=img_train_array)
 f_valid.create_dataset('samples', img_valid_array_shape, data=img_valid_array)
 del img_train_array, img_valid_array
 
-seg_train_array_shape = (n_sequences_train, 1, h, w, n_frames_max)
+seg_train_array_shape = (n_sequences_train, n_classes, h, w, n_frames_max)
 seg_train_array = np.zeros(seg_train_array_shape, dtype=np.uint8)
-seg_valid_array_shape = (n_sequences_valid, 1, h, w, n_frames_max)
+seg_valid_array_shape = (n_sequences_valid, n_classes, h, w, n_frames_max)
 seg_valid_array = np.zeros(seg_valid_array_shape, dtype=np.uint8)
 for sequence_id, segment_path in enumerate(sorted(os.listdir(segment_dir))):
     sequence_dir = os.path.join(segment_dir, segment_path)
@@ -126,12 +126,11 @@ for sequence_id, segment_path in enumerate(sorted(os.listdir(segment_dir))):
                 with Image.open(seg_full_path) as read_seg:
                     to_write = np.array(read_seg)[:, :, -1]  # alpha-channel is seg
                     to_write = np.where(to_write > 0, 1, 0).astype(np.uint8)
-                    to_write *= (label_id + 1)
                     if sequence_id < n_sequences_train:
-                        seg_train_array[sequence_id, :, :, :, frame_id] += to_write
+                        seg_train_array[sequence_id, label_id, :, :, frame_id] += to_write
                     else:
                         valid_id = sequence_id - n_sequences_train
-                        seg_valid_array[valid_id, :, :, :, frame_id] += to_write
+                        seg_valid_array[valid_id, label_id, :, :, frame_id] += to_write
 
 if no_hot_labels:
     seg_train_array = np.argmax(seg_train_array, axis=1)
