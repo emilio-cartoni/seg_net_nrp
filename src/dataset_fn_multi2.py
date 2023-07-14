@@ -13,16 +13,23 @@ DATASET_STD = [1.00, 1.00, 1.00]  # use this to have data between 0.0 and 1.0
 
 
 class Multi_Dataset(data.Dataset):
-    def __init__(self, h5_path, n_frames, n_classes, augmentation, remove_ground):
+    def __init__(self, h5_path, n_frames, augmentation, remove_ground):
         super(Multi_Dataset, self).__init__()
         f = h5py.File(name=h5_path, mode='r')
         self.samples = f['samples']  # np.array to load on ram (here not because heavy)
         self.labels = f['labels']  # np.array to load on ram (here not because heavy)
         self.n_frames_max = self.samples.shape[-1]
         self.n_frames = n_frames
-        self.n_classes = n_classes
-        self.augmentation = augmentation
         self.remove_ground = remove_ground
+        if len(self.labels.shape) < 5:
+            self.n_classes = self.labels.max()
+            self.one_hot = False
+        else:
+            self.n_classes = self.labels.shape[1]
+            self.one_hot = True
+            self.remove_ground = False # We assume no ground is in one_hot
+        self.augmentation = augmentation
+
     
     @staticmethod
     def apply_jitter(image, fn_order, bri, con, sat, hue):
@@ -68,8 +75,9 @@ class Multi_Dataset(data.Dataset):
                 label = TF.crop(label, *crop_params)
             sample = normalize(resize(sample))
             label = resize(label)
-            label = F.one_hot(torch.squeeze(label), num_classes=self.n_classes + 1)  # ground
-            label = torch.permute(label, (2, 0, 1))
+            if not self.one_hot:
+                label = F.one_hot(torch.squeeze(label), num_classes=self.n_classes + 1)  # adds also ground
+                label = torch.permute(label, (2, 0, 1))
             samples_and_labels.append((sample, label))
 
         samples = torch.stack([item[0] for item in samples_and_labels], dim=-1)
@@ -102,12 +110,10 @@ def get_multi_dataloaders(dataset_dir, dataset_path, tr_ratio,
     root_dir = dataset_path[dataset_dir]
     train_path = os.path.join(root_dir, 'train.hdf5')
     valid_path = os.path.join(root_dir, 'valid.hdf5')
-    n_classes = 11
 
     # Training dataloader
     train_dataset = Multi_Dataset(train_path,
                                   n_frames,
-                                  n_classes,
                                   augmentation,
                                   remove_ground)
     train_dataloader = data.DataLoader(train_dataset,
@@ -118,13 +124,12 @@ def get_multi_dataloaders(dataset_dir, dataset_path, tr_ratio,
     # Validation dataloader
     valid_dataset = Multi_Dataset(valid_path,
                                   n_frames,
-                                  n_classes,
                                   False,
                                   remove_ground)
     valid_dataloader = data.DataLoader(valid_dataset,
                                        batch_size=batch_size_valid,
                                        shuffle=True,
                                        pin_memory=True)
-        
+
     # Return the dataloaders and number of classes to the computer
-    return train_dataloader, valid_dataloader, n_classes
+    return train_dataloader, valid_dataloader, train_dataset.n_classes
