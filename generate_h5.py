@@ -39,7 +39,7 @@ if show_string.lower() == 'y':
     print("Samples shape:", samples.shape)
     print("Labels shape:", labels.shape)
 
-    if len(labels.shape) < 5 or labels.shape[1] == 1:
+    if len(labels.shape) < 5:
         n_classes = labels.max()
     else:
         n_classes = labels.shape[1]
@@ -51,9 +51,6 @@ if show_string.lower() == 'y':
         labels_seq = np.expand_dims(labels[seq,...], 0)
         if len(labels.shape) < 5:
             labels_seq = np.expand_dims(labels_seq, 1)
-
-        if labels_seq.shape[1] == 1:
-            # Fix in case labels are put all in the same dimension intead of having own dimensions
             labels_seq = np.hstack([labels_seq == (idx + 1)  for idx in range(n_classes)])
 
         labels_video = onehot_to_rgb(labels_seq)[0].transpose(1, 2, 0, 3)
