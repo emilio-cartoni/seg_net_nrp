@@ -196,7 +196,7 @@ class PredNet(nn.Module):
             'scheduler_params': scheduler.state_dict(),
             'train_losses': train_losses,
             'valid_losses': valid_losses},
-            rf'.\ckpt\{self.model_name}\ckpt_{ckpt_id:03}.pt')
+            f'.{os.sep}ckpt{os.sep}{self.model_name}{os.sep}ckpt_{ckpt_id:03}.pt')
         print('SAVED')
         train_losses = [l if l < 10 * sum(train_losses) / len(train_losses) else 0.0 for l in train_losses]
         valid_losses = [l if l < 10 * sum(valid_losses) / len(valid_losses) else 0.0 for l in valid_losses]
@@ -205,7 +205,7 @@ class PredNet(nn.Module):
         plt.plot(train_axis, train_losses, label='train')
         plt.plot(valid_axis, valid_losses, label='valid')
         plt.legend()
-        plt.savefig(rf'.\ckpt\{self.model_name}\loss_plot.png')
+        plt.savefig(f'.{os.sep}ckpt{os.sep}{self.model_name}{os.sep}loss_plot.png')
         plt.close()
 
     @classmethod
