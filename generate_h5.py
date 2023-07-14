@@ -103,7 +103,11 @@ for sequence_id, segment_path in enumerate(sorted(os.listdir(segment_dir))):
                 frame_id += 1
                 frame_label = new_frame_label
             label_name = '_'.join(segment_path.split('__')[0].split('_')[4:])
-            label_id = label_id_map[label_name]
+            # print(label_name, label_id_map)
+            if not (label_name[:label_name.find(":")]  in label_id_map.keys()):
+                continue
+            label_id = label_id_map[label_name[:label_name.find(":")]]
+
             if frame_id < n_frames_max:
                 seg_full_path = os.path.join(sequence_dir, segment_path)
                 with Image.open(seg_full_path) as read_seg:
