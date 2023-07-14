@@ -43,7 +43,7 @@ class Multi_Dataset(data.Dataset):
         crop_params = IT.RandomCrop.get_params(torch.tensor(sample_list[0]),
                                                             output_size=(240, 240))
         resize = IT.Resize(size=(128, 128),
-                           interpolation=IT.InterpolationMode.NEAREST)
+                           interpolation=IT.InterpolationMode.NEAREST_EXACT)
         normalize = IT.Normalize(mean=DATASET_MEAN,
                                  std=DATASET_STD)
 
