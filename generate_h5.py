@@ -25,8 +25,9 @@ n_channels = 3
 n_classes = max(label_id_map.values()) + 1
 no_hot_labels = False
 
-show_dataset_mode = False
-if show_dataset_mode:
+
+show_string = input('Do you want to show the existing dataset?(y/N)')
+if show_string.lower() == 'y':
     with h5py.File(train_path, 'r') as f:
         samples = np.array(f['samples'])
         labels = np.array(f['labels'])
