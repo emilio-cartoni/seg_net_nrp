@@ -3,6 +3,7 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 from PIL import Image
+from src.utils import onehot_to_rgb, hsv_to_rgb
 
 dataset_dir = r'D:\DL\datasets\nrp'
 dataset_type = 'multi_small'  # 'multi_small'; 'multi_shelf'
@@ -28,8 +29,36 @@ if show_dataset_mode:
     with h5py.File(train_path, 'r') as f:
         samples = np.array(f['samples'])
         labels = np.array(f['labels'])
-    for frame_id in range(n_frames_max):
-        plt.imshow(labels[0, 2, :, :, frame_id])
+
+    n_sequences_train, n_channels, h, w, n_frames_max = samples.shape
+    n_classes = labels.shape[1]
+
+    print("Samples shape:", samples.shape)
+    print("Labels shape:", labels.shape)
+    for seq in range(n_sequences_train):
+        print(f"Showing sequence {seq} of {n_sequences_train}")
+
+        image_video = samples[seq, ...].transpose(1, 2, 0, 3)
+        labels_video = onehot_to_rgb(np.expand_dims(labels[seq,...], 0))[0].transpose(1, 2, 0, 3)
+        # To make labels compatible with images as images are uint8, 0..255
+        labels_video *= 255
+
+        rows = 8  # use optimal tiling algorithm to calculate rows and cols
+        cols = 7
+        if rows*cols < n_frames_max:
+            print("Part of the sequence will not be shown, insufficient rows or cols.")
+
+        total_image = np.zeros((0, w * 2 * cols, 3))
+        for r in range(rows):
+            h_strip = np.zeros((h, 0, 3))
+            for c in range(cols):
+                frame_id = r*cols + c
+                if frame_id < n_frames_max:
+                    h_strip = np.hstack([h_strip, image_video[..., frame_id], labels_video[..., frame_id]])
+                else:
+                    h_strip = np.hstack([h_strip, np.zeros((h, w * 2, 3))])
+            total_image = np.vstack([total_image, h_strip])
+        plt.imshow(total_image.astype('uint8'))
         plt.show()
     exit()
 else:
