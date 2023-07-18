@@ -180,6 +180,9 @@ class PredNet(nn.Module):
         None
         '''
         ckpt_id = epoch // n_epochs_save * n_epochs_save
+        # Save only every n_epochs_save passed
+        if epoch // n_epochs_save < 1 or epoch % n_epochs_save > 0:
+            return
         torch.save({
             'model_name': self.model_name,
             'do_time_aligned': self.do_time_aligned,
