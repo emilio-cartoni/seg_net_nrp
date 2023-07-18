@@ -6,7 +6,12 @@ from src.dataset_fn_mots import get_mots_dataloaders
 from src.dataset_fn_handover import get_handover_dataloaders
 from src.dataset_fn_bmw3 import get_bmw_dataloaders
 from src.dataset_fn_multi2 import get_multi_dataloaders
+from torch.utils.tensorboard import SummaryWriter
+from torch import Tensor
+import torchvision
 
+
+writer = SummaryWriter()
 
 # General parameters
 load_model = False
@@ -92,6 +97,14 @@ else:
     model, optimizer, scheduler, train_losses, valid_losses = PredNet.load_model(model_name,
                                                                                  epoch_to_load,
                                                                                  lr_params)
+
+# Write model to Tensorboard
+images, labels = next(iter(train_dl))
+index_t = Tensor(data_params['n_frames'])
+for a in range(data_params['n_frames']):
+    index_t[a] = a
+writer.add_graph(model, (images[..., 0], index_t[0]))
+writer.close()
 
 # Train the network
 last_epoch = len(valid_losses) // (1 + len(valid_dl) // data_params['batch_size_valid'])
