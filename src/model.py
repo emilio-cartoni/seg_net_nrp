@@ -180,9 +180,21 @@ class PredNet(nn.Module):
         None
         '''
         ckpt_id = epoch // n_epochs_save * n_epochs_save
-        # Save only every n_epochs_save passed
+
+        train_losses = [l if l < 10 * sum(train_losses) / len(train_losses) else 0.0 for l in train_losses]
+        valid_losses = [l if l < 10 * sum(valid_losses) / len(valid_losses) else 0.0 for l in valid_losses]
+        train_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(train_losses)))[:len(train_losses)]
+        valid_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(valid_losses)))[:len(valid_losses)]
+        plt.plot(train_axis, train_losses, label='train')
+        plt.plot(valid_axis, valid_losses, label='valid')
+        plt.legend()
+        plt.savefig(f'.{os.sep}ckpt{os.sep}{self.model_name}{os.sep}loss_plot.png')
+        plt.close()
+
+        # Save model only every n_epochs_save passed
         if epoch // n_epochs_save < 1 or epoch % n_epochs_save > 0:
             return
+
         torch.save({
             'model_name': self.model_name,
             'do_time_aligned': self.do_time_aligned,
@@ -201,15 +213,6 @@ class PredNet(nn.Module):
             'valid_losses': valid_losses},
             f'.{os.sep}ckpt{os.sep}{self.model_name}{os.sep}ckpt_{ckpt_id:03}.pt')
         print('SAVED')
-        train_losses = [l if l < 10 * sum(train_losses) / len(train_losses) else 0.0 for l in train_losses]
-        valid_losses = [l if l < 10 * sum(valid_losses) / len(valid_losses) else 0.0 for l in valid_losses]
-        train_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(train_losses)))[:len(train_losses)]
-        valid_axis = list(np.arange(0, epoch + 1, (epoch + 1) / len(valid_losses)))[:len(valid_losses)]
-        plt.plot(train_axis, train_losses, label='train')
-        plt.plot(valid_axis, valid_losses, label='valid')
-        plt.legend()
-        plt.savefig(f'.{os.sep}ckpt{os.sep}{self.model_name}{os.sep}loss_plot.png')
-        plt.close()
 
     @classmethod
     def load_model(cls, model_name, epoch_to_load=None, lr_params=None):
