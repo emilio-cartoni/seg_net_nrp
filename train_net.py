@@ -15,8 +15,8 @@ writer = SummaryWriter()
 
 # General parameters
 load_model = False
-n_epochs_run = 20
-n_epochs_save = 5
+n_epochs_run = 2000
+n_epochs_save = 500
 epoch_to_load = None  # None to load the last available epoch
 remove_ground = False
 
@@ -27,7 +27,7 @@ data_params = {
     'n_frames': 50,
     'tr_ratio': 0.8,
     'remove_ground': remove_ground,
-    'augmentation': True,
+    'augmentation': False,
     'dataset_dir': 'multi_shelf',  # 'mots', 'nrp', 'handover', 'multi_shelf', 'multi_small', 'bmw'
     'dataset_path': {
         'mots': r'D:\DL\datasets\kitti\mots',
@@ -71,7 +71,7 @@ loss_params = {
     'seg_foc': 1.0 if len(model_params['seg_layers']) > 0 else 0.0}
 
 # Training parameters
-lr = 5e-4
+lr = 1e-3
 lr_params = {
     'scheduler_type': 'multistep',  # 'multistep', 'cosine', 'onecycle'
     'optimizer': {'lr': lr, 'betas': (0.9, 0.98), 'eps': 1e-8},
@@ -90,7 +90,7 @@ if not load_model:
     print(f'\nCreating model: {model_name}')
     model = PredNet(model_name, **model_params)
     train_losses, valid_losses = [], []
-    optimizer = torch.optim.AdamW(model.parameters(), **lr_params['optimizer'])
+    optimizer = torch.optim.Adam(model.parameters(), **lr_params['optimizer'])
     scheduler = select_scheduler(optimizer, lr_params)
 else:
     print(f'\nLoading model: {model_name}')
