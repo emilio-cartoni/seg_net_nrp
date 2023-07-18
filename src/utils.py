@@ -158,7 +158,8 @@ def plot_recons(A_seq, S_lbl_seq, P_seq, S_seq, epoch=0, batch_idx=(0,), output_
     out_seq = out_batch[0]
     gif_frames = [(255. * out_seq[..., t]).astype(np.uint8) for t in range(n_frames)]
     gif_path = f'{output_dir}{mode}_epoch_{epoch:03}_id_{batch_idx:03}'
-    imageio.mimsave(f'{gif_path}.gif', gif_frames, duration=0.1)
+    imageio.mimsave(f'{gif_path}.gif', gif_frames, duration=0.1, loop=0)
+    imageio.mimsave(f'{gif_path}.apng', gif_frames, duration=0.1, loop=0)
 
 
 def onehot_to_rgb(onehot_tensor):
