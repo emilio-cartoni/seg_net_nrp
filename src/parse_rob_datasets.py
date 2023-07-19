@@ -32,7 +32,7 @@ def save_imgs(img_dict, lbl_dict, segment_dir_out, packbits=True):
 
     for img_path, img in img_dict.items():
         this_label = img_path.split('__')[-1].split('.png')[0]
-        
+        #print(img_path)
         for cat_idx, cat in enumerate(lbl_dict.keys()):
             
             if this_label in lbl_dict[cat]:
@@ -81,9 +81,9 @@ def parse_dataset(data_dir, dataset_type, packbits):
     else:
         raise SystemExit('\nError: invalid dataset type')
     
-    num_processors_used = 4  # min(cpu_count() - 2, 8)
+    num_processors_used = 8  # min(cpu_count() - 2, 8)
     print(f'Using {num_processors_used} processors')
-    segment_subdirs_in = os.listdir(segment_dir_in)
+    segment_subdirs_in = sorted(os.listdir(segment_dir_in))
     with Pool(num_processors_used) as pool:
         pool.starmap(parse_one_sequence, zip(segment_subdirs_in,
                                              repeat(segment_dir_in),
@@ -126,7 +126,7 @@ def parse_one_sequence(segment_subdir_in, segment_dir_in,
     
     mask_dict = {}
     check_path = ''
-    for img_path in os.listdir(full_segment_subdir_in):
+    for img_path in sorted(os.listdir(full_segment_subdir_in)):
         new_check_path = img_path[:22]
 
         if new_check_path != check_path and check_path != '':

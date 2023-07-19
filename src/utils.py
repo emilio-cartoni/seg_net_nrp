@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 def plot_recons(P_seq, P_seq_true, S_seq, S_seq_true, rect_width=10):
     ''' Plot reconstruction of image and segmentation mask. '''
+    rect_width=320
     N, C, H, W, T = P_seq.shape
     S_seq = onehot_to_rgb(S_seq.numpy())
     S_seq_true = onehot_to_rgb(S_seq_true.numpy())

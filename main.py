@@ -7,8 +7,8 @@ from absl import app, flags, logging
 from src.model import PredNet
 from src.loss_fn import loss_fn
 from src.utils import plot_recons, select_scheduler
-from src.dataset_fn_rob import rob_dl
-from src.parse_rob_datasets import parse_dataset
+from src.dataset_fn_rl import rob_dl
+from src.parse_rl_datasets import parse_dataset
 
 flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
 flags.DEFINE_boolean('profiler', False, 'Whether to run a profiler training run')
@@ -18,10 +18,10 @@ flags.DEFINE_integer('batch_accum', 4, 'Gradient accumulation steps')
 flags.DEFINE_integer('num_epochs', 10, 'Number of epochs to train')
 flags.DEFINE_integer('num_workers', 0, 'Number of workers for dataloader')
 flags.DEFINE_integer('num_frames_train', 10, 'Number of frames before backpropagation')
-flags.DEFINE_integer('num_frames_valid', 50, 'Number of frames in validation sequences')
+flags.DEFINE_integer('num_frames_valid', 20, 'Number of frames in validation sequences')
 flags.DEFINE_integer('num_versions', 1, 'Number of versions to train for each model')
 flags.DEFINE_string('logs_dir', 'logs', 'Path to logs directory (e.g., for checkpoints)')
-flags.DEFINE_string('data_dir', 'dataset', 'Path to main data directory')
+flags.DEFINE_string('data_dir', '/home/devel/Projects/rl_dataset/dataset-hbp', 'Path to main data directory')
 flags.DEFINE_string('data_type', 'rob', 'Type of dataset used')  # 'rob', 'no_rob'
 flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update learning rate')
 flags.DEFINE_float('lr', 1e-3, 'Learning rate')
@@ -51,7 +51,7 @@ class PLPredNet(pl.LightningModule):
             seg_layers = tuple(range(len(channels))[1:])
         else:
             seg_layers = (0,)
-        self.num_classes = {'rob': 5, 'no_rob': 4}[FLAGS.data_type]
+        self.num_classes = 2
         self.model = PredNet(device=device,
                              num_classes=self.num_classes,
                              rnn_type=FLAGS.rnn_type,
@@ -68,19 +68,16 @@ class PLPredNet(pl.LightningModule):
             Parse the segmentation images into more usable masks
 
         '''
-        segment_subdir = 'sb' if FLAGS.packbits else 'sm'
         dataset_dir = os.path.join(FLAGS.data_dir,
-                                   FLAGS.data_type,
-                                   segment_subdir)
+                                   "images")
         if not os.path.isdir(dataset_dir):
             print('Dataset directory does not exist: creation in process.')
-            parse_dataset(FLAGS.data_dir, FLAGS.data_type, FLAGS.packbits)
+            parse_dataset(FLAGS.data_dir)
         else:
-            num_dataset_sequences = {'rob': 2000,
-                                     'no_rob': 2000}[FLAGS.data_type]
+            num_dataset_sequences = 2000
             if len(os.listdir(dataset_dir)) < num_dataset_sequences:
                 print('Dataset directory incomplete: completion in process.')
-                parse_dataset(FLAGS.data_dir, FLAGS.data_type, FLAGS.packbits)
+                parse_dataset(FLAGS.data_dir)
     
     def forward(self, input_sequence):
         ''' Forward pass of the PredNet model
@@ -214,7 +211,7 @@ class PLPredNet(pl.LightningModule):
             num_frames = FLAGS.num_frames_train
         else:
             num_frames = FLAGS.num_frames_valid
-        data_dir = os.path.join(FLAGS.data_dir, FLAGS.data_type)
+        data_dir = os.path.join(FLAGS.data_dir) #, FLAGS.data_type)
         return rob_dl(mode=mode,
                       data_dir=data_dir,
                       batch_size=FLAGS.batch_size,
