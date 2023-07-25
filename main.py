@@ -69,7 +69,7 @@ class PLPredNet(pl.LightningModule):
 
         '''
         dataset_dir = os.path.join(FLAGS.data_dir,
-                                   "images")
+                                   "img")
         if not os.path.isdir(dataset_dir):
             print('Dataset directory does not exist: creation in process.')
             parse_dataset(FLAGS.data_dir)
