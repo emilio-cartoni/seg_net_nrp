@@ -49,13 +49,9 @@ def save_mask(img, img_path, lbl_dict, mask_id):
 
     '''
     np_img = np.array(img)
-    try:
-        segment_mask_img = np.load(img_path)
-        return
-    except:
-        img_shape = np_img.shape
-        mask_shape = img_shape[:-1] + (len(lbl_dict.keys()),)
-        segment_mask_img = np.zeros(mask_shape, dtype=np.uint8)
+    img_shape = np_img.shape
+    mask_shape = img_shape[:-1] + (len(lbl_dict.keys()),)
+    segment_mask_img = np.zeros(mask_shape, dtype=np.uint8)
 
     mask = np.where(np.add(np.add(np_img[:, :, 0], np_img[:, :, 1]), np_img[:, :, 2]) > 0, 1, 0).astype(np.uint8)
     segment_mask_img[:,:, mask_id] = np.logical_or(segment_mask_img[:,:, mask_id], mask)
