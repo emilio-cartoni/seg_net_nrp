@@ -9,6 +9,7 @@ from src.loss_fn import loss_fn
 from src.utils import plot_recons, select_scheduler
 from src.dataset_fn_rl import rob_dl
 from src.parse_rl_datasets import parse_dataset
+import random
 
 flags.DEFINE_boolean('debug', False, 'Whether to run training in debug mode')
 flags.DEFINE_boolean('profiler', False, 'Whether to run a profiler training run')
@@ -301,7 +302,7 @@ def generate_ckpt_path(model_name, model_version):
     return ckpt_path
 
 
-def train_one_net(model_version):
+def train_one_net(model_version, seed):
     ''' Train one PredNet model using the pytorch-lightning framework
         
     Args:
@@ -312,7 +313,7 @@ def train_one_net(model_version):
     '''
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model_name = f'Prednet_L-{FLAGS.n_layers}_R-{FLAGS.rnn_type}'\
-               + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}'
+               + f'_A-{FLAGS.axon_delay}_P-{FLAGS.pred_loss}_{seed}'
     model = PLPredNet(device)
     trainer = pl.Trainer(num_sanity_val_steps=2,
                          default_root_dir=FLAGS.logs_dir,
@@ -332,9 +333,10 @@ def train_one_net(model_version):
 
 def main(_):
     ''' Run the training procedure for a PredNet model '''
-    pl.seed_everything(1000, workers=True)
+    seed = random.randint(0, 10000) # 1000
+    pl.seed_everything(seed, workers=True)
     for model_version in range(FLAGS.num_versions):
-        train_one_net(model_version)
+        train_one_net(model_version, seed)
 
 
 if __name__ == '__main__':
