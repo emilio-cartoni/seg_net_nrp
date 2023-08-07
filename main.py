@@ -28,7 +28,7 @@ flags.DEFINE_string('scheduler_type', 'onecycle', 'Scheduler used to update lear
 flags.DEFINE_float('lr', 1e-3, 'Learning rate')
 flags.DEFINE_integer('n_layers', 4, 'Number of layers in the model')
 flags.DEFINE_string('rnn_type', 'hgru', 'Type of the recurrent cells used')
-flags.DEFINE_boolean('axon_delay', True, 'Whether to use axonal delays or not')
+flags.DEFINE_boolean('axon_delay', False, 'Whether to use axonal delays or not')
 flags.DEFINE_boolean('pred_loss', True, 'Whether to minimize prediction error')
 flags.DEFINE_boolean('packbits', False, 'Whether packbits compression is used for segmasks')
 FLAGS = flags.FLAGS
