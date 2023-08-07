@@ -168,7 +168,7 @@ def loss_fn(E_seq, S_seq, S_seq_true, pred_flag=True, val_flag=False):
         
         # Segmentation prediction loss (supervised)
         # seg_loss = dic_loss_fn(S, S_true)  # + foc_loss_fn(S, S_true)
-        seg_loss = bce_loss_fn(S, S_true)
+        seg_loss = bce_loss_fn(S, S_true.float())
 
         # Do not account for prediction error in validation mode
         if pred_flag and not val_flag:
