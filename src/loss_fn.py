@@ -145,6 +145,7 @@ mse_loss_fn = nn.MSELoss()
 mae_loss_fn = nn.L1Loss()
 foc_loss_fn = FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')  # FocalTverskyLoss()
 dic_loss_fn = DiceLoss()
+bce_loss_fn = nn.BCELoss()
 
 
 def loss_fn(E_seq, S_seq, S_seq_true, pred_flag=True, val_flag=False):
@@ -166,7 +167,8 @@ def loss_fn(E_seq, S_seq, S_seq_true, pred_flag=True, val_flag=False):
         pred_loss = 0.0 if E is None else sum([torch.mean(e) for e in E])
         
         # Segmentation prediction loss (supervised)
-        seg_loss = dic_loss_fn(S, S_true)  # + foc_loss_fn(S, S_true)
+        # seg_loss = dic_loss_fn(S, S_true)  # + foc_loss_fn(S, S_true)
+        seg_loss = bce_loss_fn(S, S_true)
 
         # Do not account for prediction error in validation mode
         if pred_flag and not val_flag:
