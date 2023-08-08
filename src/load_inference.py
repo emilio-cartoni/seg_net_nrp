@@ -44,7 +44,7 @@ def load_inference_model(
         bu_channels=(3,) + channels[:-1],
         td_channels=channels)
     
-    checkpoint = torch.load(ckpt_path)
+    checkpoint = torch.load(ckpt_path, map_location=torch.device(device))
     states = checkpoint["state_dict"].copy()
     states.clear()
     for k, v in checkpoint["state_dict"].items():
