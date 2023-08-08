@@ -40,21 +40,21 @@ model, device = load_inference_model(ckpt_path, device='cpu', num_classes=2, rnn
 im = tensor[None, :, :, :]
 image = im.to(device=device)
 
-max_t = 3
-fig, axes = plt.subplots(3, max_t + 1)
-axes[0, 0].imshow(label[0], vmin=0, vmax=1)
-axes[1, 0].imshow(label[1], vmin=0, vmax=1)
-axes[2, 0].imshow(image1)
+cm = plt.get_cmap('viridis')
+h_spacer = np.zeros((1, image1.shape[1], 3))
+v_spacer = np.zeros((image1.shape[0] * 3 + 2, 1, 3))
+png_image = cm(label[0])[..., :3] * 255
+png_image = np.vstack([png_image, h_spacer, cm(label[1])[..., :3] * 255])
+png_image = np.vstack([png_image, h_spacer, image1])
 
+max_t = 3
 for t in range(0, max_t):
     print(t)
     _, pred_image, seg_image = model(image, t)
-
-    axes[0, t + 1].imshow(seg_image[0, 0, ...].detach().numpy())
-    axes[1, t + 1].imshow(seg_image[0, 1, ...].detach().numpy())
-    axes[2, t + 1].imshow(pred_image[0, ...].detach().numpy().transpose(1, 2, 0))
-
+    t_image = cm(seg_image[0, 0, ...].detach().numpy())[..., :3] * 255
+    t_image = np.vstack([t_image, h_spacer, cm(seg_image[0, 1, ...].detach().numpy())[..., :3] * 255])
+    t_image = np.vstack([t_image, h_spacer, pred_image[0].detach().numpy().transpose(1, 2, 0) * 255])
+    png_image = np.hstack([png_image, v_spacer, t_image])
 
 Path(f"output/{network_seed}").mkdir(parents=True, exist_ok=True)
-fig.tight_layout()
-plt.savefig(f'output/{network_seed}/plot{id}_t{t}.png')
+imageio.mimsave(f'output/{network_seed}/plot{id}_t{t}.png', [png_image.astype('uint8')])
